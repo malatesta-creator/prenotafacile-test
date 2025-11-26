@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Service, Booking, BookingStatus } from '../types';
+import { Service, Booking, BookingStatus, ServiceAvailability } from '../types';
 import { DEFAULT_SERVICES, GOOGLE_CALENDAR_CONFIG } from '../constants';
 
 interface AdminPanelProps {
@@ -117,7 +117,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     } finally {
         setProcessingAction(null);
     }
-  }
+  };
 
   const handleResetData = () => {
       if (window.confirm("ATTENZIONE: Questo cancellerà tutte le prenotazioni e ripristinerà i servizi predefiniti. Vuoi procedere?")) {
@@ -125,7 +125,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           onUpdateServices(DEFAULT_SERVICES);
           window.location.reload();
       }
-  }
+  };
 
   const handleSaveConfig = () => {
       localStorage.setItem('prenotafacile_apikey', configData.apiKey);
