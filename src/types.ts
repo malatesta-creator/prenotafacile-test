@@ -1,3 +1,4 @@
+
 export interface ServiceAvailability {
   mode: 'always' | 'range' | 'weekly';
   startDate?: string;   // YYYY-MM-DD
@@ -9,9 +10,10 @@ export interface ServiceAvailability {
 
 export interface Service {
   id: string;
+  client_id?: string; // Collegamento al database
   title: string;
   description: string;
-  durationMinutes: number;
+  durationMinutes: number; // Mapped from duration in DB
   price: number;
   imageUrl: string;
   availability: ServiceAvailability;
@@ -43,6 +45,7 @@ export interface Booking extends BookingDetails {
   id: string;
   createdAt: string;
   status: BookingStatus;
+  client_id?: string; // Collegamento al database
 }
 
 export interface CalendarEvent {
@@ -57,4 +60,19 @@ export enum AppStep {
   DATE_SELECTION,
   DETAILS_FORM,
   CONFIRMATION,
+}
+
+// Interfaccia per il Cliente (Tenant)
+export interface ClientConfig {
+  id: string;
+  subdomain: string;
+  business_name: string;
+  email_owner: string;
+  password?: string;
+  google_api_key?: string;
+  email_bridge?: string;
+  emailjs_service_id?: string;
+  emailjs_template_id?: string;
+  emailjs_public_key?: string;
+  service_account_json?: string; // JSON credentials del Service Account Google
 }
