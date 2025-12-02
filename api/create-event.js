@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 
 export default async function handler(req, res) {
-  // 1. Gestione CORS (per permettere al sito di chiamare il server)
+  // 1. Gestione CORS (per permettere chiamate dal sito)
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { booking, serviceAccountJson } = req.body;
+  const { booking, serviceAccountJson, ownerEmail } = req.body;
 
   if (!serviceAccountJson) {
     return res.status(400).json({ error: 'Mancano le credenziali del Service Account (Robot)' });
@@ -27,7 +27,6 @@ export default async function handler(req, res) {
 
   try {
     // 2. Autenticazione del Robot Google
-    // Usiamo le credenziali JSON passate dal frontend (che le ha prese da Supabase)
     const jwtClient = new google.auth.JWT(
       serviceAccountJson.client_email,
       null,
@@ -40,7 +39,6 @@ export default async function handler(req, res) {
     const calendar = google.calendar({ version: 'v3', auth: jwtClient });
 
     // 3. Preparazione Evento
-    // Convertiamo data e ora in formato Google ISO
     const startDateTime = new Date(`${booking.date}T${booking.timeSlot.startTime}:00`);
     const endDateTime = new Date(startDateTime.getTime() + booking.service.durationMinutes * 60000);
 
@@ -55,20 +53,13 @@ export default async function handler(req, res) {
         dateTime: endDateTime.toISOString(),
         timeZone: 'Europe/Rome',
       },
-      // 4. INVITIAMO IL CLIENTE (Business Owner)
-      // Così l'evento appare anche sul SUO calendario personale
+      // 4. INVITIAMO IL CLIENTE
       attendees: [
-        // { email: booking.clientEmail }, // Opzionale: invita anche l'utente finale
-        // Qui invitiamo il proprietario del calendario (quello che abbiamo configurato come "owner")
-        // Nota: Il frontend deve passarci l'email del proprietario se vogliamo invitarlo esplicitamente,
-        // ma se scriviamo sul calendario condiviso, apparirà comunque.
+        { email: ownerEmail }, // Il proprietario del business (es. badhead1973)
       ],
     };
 
-    // 5. Scrittura sul Calendario "Ponte" (o quello del Robot)
-    // 'primary' usa il calendario principale del Robot.
-    // Se il Robot ha accesso al calendario 'open2agency@gmail.com', possiamo usare quell'email come calendarId.
-    // Per ora usiamo 'primary' del Robot e invitiamo gli altri, è più sicuro.
+    // 5. Scrittura sul Calendario del Robot
     const calendarId = 'primary'; 
 
     const response = await calendar.events.insert({
