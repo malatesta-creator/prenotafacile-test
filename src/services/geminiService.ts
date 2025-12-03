@@ -48,7 +48,6 @@ export const fetchRealGoogleCalendarEvents = async (dateStr: string, config?: Cl
 
     const data = await response.json();
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const events: CalendarEvent[] = (data.items || []).map((item: any) => {
       const start = item.start.dateTime || item.start.date;
       const end = item.end.dateTime || item.end.date;
@@ -98,15 +97,16 @@ export const validateBookingAvailability = async (booking: BookingDetails, confi
   }
 };
 
-// --- FUNZIONE PER SCRIVERE SUL CALENDARIO (BACKEND) ---
-export const createCalendarBooking = async (booking: BookingDetails, serviceAccountJson?: any, ownerEmail?: string): Promise<boolean> => {
+// --- SCRITTURA SUL CALENDARIO (BACKEND) ---
+// Modificato per accettare targetCalendarId
+export const createCalendarBooking = async (booking: BookingDetails, serviceAccountJson: any, ownerEmail: string, targetCalendarId: string): Promise<boolean> => {
     try {
         if (!serviceAccountJson) {
             console.warn("⚠️ Nessun JSON Service Account fornito. Salto scrittura calendario automatica.");
             return false;
         }
 
-        console.log("🔄 Chiamata al Server Backend per scrivere su Calendar...");
+        console.log(`🔄 Chiamata al Server Backend per scrivere su ${targetCalendarId}...`);
         
         const response = await fetch('/api/create-event', {
             method: 'POST',
@@ -116,7 +116,8 @@ export const createCalendarBooking = async (booking: BookingDetails, serviceAcco
             body: JSON.stringify({
                 booking: booking,
                 serviceAccountJson: serviceAccountJson,
-                ownerEmail: ownerEmail || ''
+                ownerEmail: ownerEmail,
+                targetCalendarId: targetCalendarId // Passiamo l'email ponte
             }),
         });
 
