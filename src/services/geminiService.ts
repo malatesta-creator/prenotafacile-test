@@ -1,39 +1,18 @@
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
 import emailjs from '@emailjs/browser';
-import { BookingDetails, CalendarEvent, Booking, BookingStatus } from '../types';
-import { getMockCalendarEvents, GOOGLE_CALENDAR_CONFIG, BUSINESS_CONFIG } from '../constants';
+import { BookingDetails, CalendarEvent, Booking, BookingStatus, ClientConfig } from '../types';
+import { getMockCalendarEvents } from '../constants';
 
-const ai = new GoogleGenAI({ apiKey: 'DUMMY_KEY' });
-
-const getCalendarCredentials = () => {
-  const savedApiKey = localStorage.getItem('prenotafacile_apikey');
-  const savedCalendarId = localStorage.getItem('prenotafacile_calendarid');
-  const apiKey = (savedApiKey && savedApiKey.trim() !== '') ? savedApiKey : GOOGLE_CALENDAR_CONFIG.apiKey;
-  const calendarId = (savedCalendarId && savedCalendarId.trim() !== '') ? savedCalendarId : GOOGLE_CALENDAR_CONFIG.calendarId;
-  const isKeyValid = apiKey && !apiKey.includes('INCOLLA_QUI');
-  const isIdValid = calendarId && !calendarId.includes('INCOLLA_QUI');
-  return { apiKey, calendarId, isValid: isKeyValid && isIdValid };
+const getAIClient = (apiKey: string) => {
+  return new GoogleGenAI({ apiKey });
 };
 
-const getEmailCredentials = () => {
-    return {
-        serviceId: localStorage.getItem('prenotafacile_email_service_id'),
-        templateId: localStorage.getItem('prenotafacile_email_template_id'),
-        publicKey: localStorage.getItem('prenotafacile_email_public_key')
-    };
-};
-
-const getAIClient = () => {
-  const { apiKey } = getCalendarCredentials();
-  return new GoogleGenAI({ apiKey: apiKey || 'DEMO_MODE' }); 
-};
-
-export const generateBookingConfirmation = async (booking: BookingDetails): Promise<string> => {
+export const generateBookingConfirmation = async (booking: BookingDetails, config?: ClientConfig): Promise<string> => {
   try {
-    const { isValid } = getCalendarCredentials();
-    if (!isValid) return "Grazie! La tua prenotazione è stata confermata con successo.";
+    const apiKey = config?.google_api_key;
+    if (!apiKey) return "Grazie! La tua prenotazione è stata confermata.";
 
-    const client = getAIClient();
+    const client = getAIClient(apiKey);
     const model = 'gemini-2.5-flash';
     const prompt = `
       Sei un assistente virtuale professionale. Prenotazione: ${booking.service.title}, ${booking.date} ore ${booking.timeSlot.startTime}, Cliente: ${booking.clientName}. Genera messaggio conferma breve.
@@ -46,17 +25,29 @@ export const generateBookingConfirmation = async (booking: BookingDetails): Prom
   }
 };
 
-export const fetchRealGoogleCalendarEvents = async (dateStr: string): Promise<CalendarEvent[]> => {
-  const { apiKey, calendarId, isValid } = getCalendarCredentials();
-  if (!isValid) return getMockCalendarEvents(dateStr);
+export const fetchRealGoogleCalendarEvents = async (dateStr: string, config?: ClientConfig): Promise<CalendarEvent[]> => {
+  const apiKey = config?.google_api_key;
+  const calendarId = config?.email_bridge;
+
+  if (!apiKey || !calendarId || apiKey.includes('INCOLLA_QUI')) {
+    console.warn("⚠️ Dati Google Calendar mancanti nella configurazione del cliente.");
+    return getMockCalendarEvents(dateStr);
+  }
 
   try {
     const timeMin = new Date(`${dateStr}T00:00:00`).toISOString();
     const timeMax = new Date(`${dateStr}T23:59:59`).toISOString();
     const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?key=${apiKey}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
+    
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Google API Error: ${response.statusText}`);
+    
+    if (!response.ok) {
+      console.error(`Google API Error: ${response.statusText}`);
+      return getMockCalendarEvents(dateStr);
+    }
+
     const data = await response.json();
+    
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const events: CalendarEvent[] = (data.items || []).map((item: any) => {
       const start = item.start.dateTime || item.start.date;
@@ -75,53 +66,80 @@ export const fetchRealGoogleCalendarEvents = async (dateStr: string): Promise<Ca
   }
 };
 
-const getCalendarEventsTool: FunctionDeclaration = {
-  name: 'getCalendarEvents',
-  parameters: {
-    type: Type.OBJECT,
-    description: 'Retrieves calendar events.',
-    properties: { date: { type: Type.STRING } },
-    required: ['date'],
-  },
-};
-
 export interface ValidationResult { isValid: boolean; message: string; }
 
-export const validateBookingAvailability = async (booking: BookingDetails): Promise<ValidationResult> => {
+export const validateBookingAvailability = async (booking: BookingDetails, config?: ClientConfig): Promise<ValidationResult> => {
   try {
-    const { isValid } = getCalendarCredentials();
-    if (!isValid) return { isValid: true, message: "Demo mode: Availability checked." };
+    const apiKey = config?.google_api_key;
+    if (!apiKey) return { isValid: true, message: "Configurazione calendario mancante. Procedo." };
 
-    const client = getAIClient();
-    const events = await fetchRealGoogleCalendarEvents(booking.date);
-    const verificationPrompt = `Calendar Data: ${JSON.stringify(events)}. Request: ${booking.timeSlot.startTime} for ${booking.service.durationMinutes} min. Check overlap. Return JSON {"valid": boolean, "message": "string"}`;
+    const client = getAIClient(apiKey);
+    const events = await fetchRealGoogleCalendarEvents(booking.date, config);
+    
+    const verificationPrompt = `
+      Calendar Data: ${JSON.stringify(events)}. 
+      Request: ${booking.timeSlot.startTime} for ${booking.service.durationMinutes} min. 
+      Check overlap strictly. 
+      Return JSON {"valid": boolean, "message": "string"}
+    `;
+    
     const response = await client.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: verificationPrompt,
       config: { responseMimeType: 'application/json' }
     });
+    
     const resultText = response.text;
     if (resultText) return JSON.parse(resultText);
     return { isValid: true, message: "Verified." };
   } catch (error) {
-    console.error(error);
-    return { isValid: true, message: "Proceeding." };
+    console.error("Validation error:", error);
+    return { isValid: true, message: "Impossibile verificare disponibilità live. Procedo." };
   }
 };
 
-export const createCalendarBooking = async (booking: BookingDetails): Promise<boolean> => {
-    // SECURITY LIMITATION: Writing to Google Calendar requires OAuth or Service Account.
-    // In a Frontend-Only app, we cannot safely expose these secrets.
-    // The workaround is to have the Owner receive the email and add it, OR use the "Add to Calendar" button.
-    console.log("Write to calendar is MANUAL via button or Owner intervention in this version.");
-    await new Promise(r => setTimeout(r, 800));
-    return true;
+// --- FUNZIONE PER SCRIVERE SUL CALENDARIO (BACKEND) ---
+export const createCalendarBooking = async (booking: BookingDetails, serviceAccountJson?: any, ownerEmail?: string): Promise<boolean> => {
+    try {
+        if (!serviceAccountJson) {
+            console.warn("⚠️ Nessun JSON Service Account fornito. Salto scrittura calendario automatica.");
+            return false;
+        }
+
+        console.log("🔄 Chiamata al Server Backend per scrivere su Calendar...");
+        
+        const response = await fetch('/api/create-event', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                booking: booking,
+                serviceAccountJson: serviceAccountJson,
+                ownerEmail: ownerEmail || ''
+            }),
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Errore Server');
+        }
+
+        const data = await response.json();
+        console.log("✅ Evento creato su Calendar!", data.link);
+        return true;
+
+    } catch (error) {
+        console.error("❌ Errore scrittura calendario:", error);
+        return false;
+    }
 };
 
-export const sendConfirmationEmails = async (booking: BookingDetails): Promise<boolean> => {
-    const { serviceId, templateId, publicKey } = getEmailCredentials();
+export const sendConfirmationEmails = async (booking: BookingDetails, config?: ClientConfig): Promise<boolean> => {
+    if (!config) return false;
+    const { emailjs_service_id, emailjs_template_id, emailjs_public_key, email_owner } = config;
     
-    if (serviceId && templateId && publicKey) {
+    if (emailjs_service_id && emailjs_template_id && emailjs_public_key) {
         try {
             const templateParams = {
                 client_name: `${booking.clientName} ${booking.clientSurname}`,
@@ -131,31 +149,27 @@ export const sendConfirmationEmails = async (booking: BookingDetails): Promise<b
                 date: booking.date,
                 time: booking.timeSlot.startTime,
                 notes: booking.notes || 'Nessuna',
-                owner_email: BUSINESS_CONFIG.email // Send copy to owner
+                owner_email: email_owner
             };
             
-            // Send to Owner/Client (Depends on how you set up the template in EmailJS)
-            // Typically you set the "To Email" in EmailJS dashboard to be dynamic or fixed to owner
-            await emailjs.send(serviceId, templateId, templateParams, publicKey);
-            console.log("✅ REAL EMAIL SENT via EmailJS");
+            await emailjs.send(emailjs_service_id, emailjs_template_id, templateParams, emailjs_public_key);
+            console.log("✅ EMAIL INVIATA CON SUCCESSO");
             return true;
         } catch (error) {
-            console.error("❌ FAILED to send email via EmailJS", error);
+            console.error("❌ ERRORE INVIO EMAIL:", error);
             return false;
         }
     } else {
-        console.warn("⚠️ EmailJS credentials missing. Email simulated.");
-        await new Promise(r => setTimeout(r, 600));
+        console.warn("⚠️ Credenziali EmailJS mancanti nel database per questo cliente.");
         return true;
     }
 };
 
-export const sendBookingStatusEmail = async (booking: Booking, status: BookingStatus): Promise<boolean> => {
-    const { serviceId, templateId, publicKey } = getEmailCredentials();
-    // Nota: Per gestire template diversi (conferma vs cancellazione) su EmailJS servirebbe logica aggiuntiva
-    // Qui usiamo lo stesso template generico per semplicità o si dovrebbero creare 2 template su EmailJS.
+export const sendBookingStatusEmail = async (booking: Booking, status: BookingStatus, config?: ClientConfig): Promise<boolean> => {
+    if (!config) return false;
+    const { emailjs_service_id, emailjs_template_id, emailjs_public_key } = config;
     
-    if (serviceId && templateId && publicKey) {
+    if (emailjs_service_id && emailjs_template_id && emailjs_public_key) {
          try {
             const templateParams = {
                 client_name: booking.clientName,
@@ -163,15 +177,15 @@ export const sendBookingStatusEmail = async (booking: Booking, status: BookingSt
                 service_name: booking.service.title,
                 date: booking.date,
                 time: booking.timeSlot.startTime,
-                notes: `Stato aggiornato a: ${status}`,
+                notes: `AGGIORNAMENTO STATO: La tua prenotazione è ora: ${status}`,
+                owner_email: config.email_owner
             };
-            await emailjs.send(serviceId, templateId, templateParams, publicKey);
+            await emailjs.send(emailjs_service_id, emailjs_template_id, templateParams, emailjs_public_key);
             return true;
         } catch (error) {
             console.error(error);
             return false;
         }
     }
-    await new Promise(r => setTimeout(r, 1000));
     return true;
 }
