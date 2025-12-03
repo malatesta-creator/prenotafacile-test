@@ -2,12 +2,15 @@ import { Service, TimeSlot, CalendarEvent } from './types';
 
 // CONFIGURAZIONE GOOGLE CALENDAR (TEST REALE)
 export const GOOGLE_CALENDAR_CONFIG = {
+  // La tua API Key (lasciata vuota qui, la inserirai dal pannello Master online per sicurezza)
   apiKey: '', 
+  // L'indirizzo della EMAIL PONTE
   calendarId: 'open2agency@gmail.com',
 };
 
 // Configurazione notifiche (Simulazione invio)
 export const BUSINESS_CONFIG = {
+  // Email del cliente che riceve le notifiche
   email: 'badhead1973@gmail.com' 
 };
 
@@ -21,7 +24,7 @@ export const DEFAULT_SERVICES: Service[] = [
     imageUrl: 'https://picsum.photos/800/600?random=1',
     availability: {
       mode: 'weekly',
-      daysOfWeek: [1, 2, 3, 4, 5],
+      daysOfWeek: [1, 2, 3, 4, 5], // Lun-Ven
       timeStart: '09:00',
       timeEnd: '18:00'
     }
@@ -35,9 +38,9 @@ export const DEFAULT_SERVICES: Service[] = [
     imageUrl: 'https://picsum.photos/800/600?random=2',
     availability: {
       mode: 'weekly',
-      daysOfWeek: [2],
+      daysOfWeek: [2], // Solo Martedì
       timeStart: '09:00',
-      timeEnd: '12:00'
+      timeEnd: '12:00' // Solo mattina
     }
   },
   {
@@ -78,7 +81,7 @@ export const AVAILABLE_TIMES: TimeSlot[] = [
 ];
 
 export const getNextDays = (days: number = 21): Date[] => {
-  const dates = [];
+  const dates: Date[] = [];
   const today = new Date();
   
   for (let i = 0; i < days; i++) {
