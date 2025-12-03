@@ -1,29 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 
-// --- Variabili di Ambiente ---
-// Queste variabili DEVONO essere definite nel tuo file .env (o equivalenti per il frontend)
-// e poi lette dal tuo server o dal tuo ambiente di build.
-// DOVRAI sostituire i valori placeholder con le tue chiavi reali di Supabase.
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+// ------------------------------------------------------------------
+// CONFIGURAZIONE SUPABASE (DATABASE)
+// ------------------------------------------------------------------
 
-// Verifica di sicurezza (utile in TypeScript)
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Le variabili di ambiente SUPABASE_URL e SUPABASE_ANON_KEY devono essere definite.');
-}
+// 1. Incolla qui il "Project URL" (trovato su Supabase > API Settings)
+const supabaseUrl = 'https://emfvodkfnttnphxqwnsd.supabase.co'; 
 
-// Inizializza il client Supabase
+// 2. Incolla qui la "Publishable Key" (trovata su Supabase > API Settings)
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVtZnZvZGtmbnR0bnBoeHF3bnNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxNzUxOTcsImV4cCI6MjA3OTc1MTE5N30.7gpxlj-UJ-SIqCeFqR5olY5Tsh41jcO5anq2Grn2Cv4';
+
+// Crea la connessione al database
+// @ts-ignore
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// Esempio di funzione che potresti creare in seguito (funzione placeholder)
-// export const fetchServices = async () => {
-//   const { data, error } = await supabase
-//     .from('services') // 'services' è il nome della tua tabella sul database
-//     .select('*');
-
-//   if (error) {
-//     console.error('Errore nel recupero dei servizi:', error);
-//     return [];
-//   }
-//   return data;
-// };
