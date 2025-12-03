@@ -12,7 +12,7 @@ interface AdminPanelProps {
   clientConfig: ClientConfig;
 }
 
-const AdminPanelV2: React.FC<AdminPanelProps> = ({ 
+const AdminPanel: React.FC<AdminPanelProps> = ({ 
     services, bookings, userRole, onUpdateServices, onUpdateBookingStatus, onClose, clientConfig 
 }) => {
   const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'setup' | 'dashboard'>(userRole === 'MASTER' ? 'dashboard' : 'bookings');
