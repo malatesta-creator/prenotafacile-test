@@ -37,9 +37,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   });
   const [isSaving, setIsSaving] = useState(false);
 
-  // -- BOOKING ACTION STATE --
-  const [processingAction, setProcessingAction] = useState<{id: string, status: BookingStatus} | null>(null);
-
   // Carica la lista clienti se sono Master
   useEffect(() => {
     if (userRole === 'MASTER') {
@@ -110,20 +107,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       finally { setIsSaving(false); }
   };
 
-  const handleBookingAction = async (id: string, status: BookingStatus) => {
-    if (!window.confirm(status === BookingStatus.CONFIRMED ? "Confermare questo appuntamento?" : "Cancellare questo appuntamento?")) return;
-    
-    setProcessingAction({ id, status });
-    try {
-        await onUpdateBookingStatus(id, status);
-    } catch (e) {
-        console.error(e);
-        alert("Errore durante l'aggiornamento.");
-    } finally {
-        setProcessingAction(null);
-    }
-  };
-
   const toggleDay = (dayIndex: number) => {
     const currentDays = formData.availability.daysOfWeek || [];
     const newDays = currentDays.includes(dayIndex)
@@ -183,39 +166,21 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         {/* PRENOTAZIONI */}
         {activeTab === 'bookings' && (
             <div className="space-y-4">
-                {bookings.map(booking => {
-                    const isProcessing = processingAction?.id === booking.id;
-                    const isCancelling = isProcessing && processingAction?.status === BookingStatus.CANCELLED;
-                    const isConfirming = isProcessing && processingAction?.status === BookingStatus.CONFIRMED;
-
-                    return (
-                        <div key={booking.id} className="bg-white p-4 rounded shadow flex justify-between items-center">
-                            <div>
-                                <div className="font-bold">{booking.clientName} {booking.clientSurname}</div>
-                                <div className="text-sm text-gray-600">{booking.service.title} - {booking.date} @ {booking.timeSlot.startTime}</div>
-                                <div className="text-xs font-mono mt-1 px-2 py-0.5 bg-gray-100 inline-block rounded">{booking.status}</div>
-                            </div>
-                            {booking.status === 'PENDING' && (
-                                <div className="flex gap-2">
-                                    <button 
-                                        disabled={isProcessing}
-                                        onClick={() => handleBookingAction(booking.id, BookingStatus.CANCELLED)} 
-                                        className={`px-3 py-1 rounded text-sm font-bold text-white ${isProcessing ? 'bg-gray-400' : 'bg-red-700 hover:bg-red-800'}`}
-                                    >
-                                        {isCancelling ? '...' : 'Rifiuta'}
-                                    </button>
-                                    <button 
-                                        disabled={isProcessing}
-                                        onClick={() => handleBookingAction(booking.id, BookingStatus.CONFIRMED)} 
-                                        className={`px-3 py-1 rounded text-sm font-bold text-white ${isProcessing ? 'bg-gray-400' : 'bg-green-700 hover:bg-green-800'}`}
-                                    >
-                                        {isConfirming ? '...' : 'Conferma'}
-                                    </button>
-                                </div>
-                            )}
+                {bookings.map(b => (
+                    <div key={b.id} className="bg-white p-4 rounded shadow flex justify-between items-center">
+                        <div>
+                            <div className="font-bold">{b.clientName} {b.clientSurname}</div>
+                            <div className="text-sm text-gray-600">{b.service.title} - {b.date} @ {b.timeSlot.startTime}</div>
+                            <div className="text-xs font-mono mt-1 px-2 py-0.5 bg-gray-100 inline-block rounded">{b.status}</div>
                         </div>
-                    );
-                })}
+                        {b.status === 'PENDING' && (
+                            <div className="flex gap-2">
+                                <button onClick={() => onUpdateBookingStatus(b.id, BookingStatus.CANCELLED)} className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm font-bold">Rifiuta</button>
+                                <button onClick={() => onUpdateBookingStatus(b.id, BookingStatus.CONFIRMED)} className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm font-bold">Conferma</button>
+                            </div>
+                        )}
+                    </div>
+                ))}
                 {bookings.length === 0 && <p>Nessuna prenotazione per {clientConfig.business_name}.</p>}
             </div>
         )}
