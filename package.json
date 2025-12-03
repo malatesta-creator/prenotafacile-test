@@ -11,10 +11,13 @@
   "dependencies": {
     "@google/genai": "latest",
     "@emailjs/browser": "^4.3.3",
+    "@supabase/supabase-js": "^2.39.7",
+    "googleapis": "^126.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@types/node": "^20.11.24",
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
