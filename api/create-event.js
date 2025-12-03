@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 
 export default async function handler(req, res) {
-  // 1. Gestione CORS (per permettere chiamate dal sito)
+  // 1. Gestione CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Ora riceviamo anche 'targetCalendarId'
+  // Recuperiamo anche targetCalendarId
   const { booking, serviceAccountJson, ownerEmail, targetCalendarId } = req.body;
 
   if (!serviceAccountJson) {
@@ -59,7 +59,7 @@ export default async function handler(req, res) {
       ],
     };
 
-    // 4. Scrittura sul Calendario TARGET (open2agency) invece che 'primary'
+    // 4. Scrittura sul Calendario TARGET (open2agency)
     // Se targetCalendarId non è fornito, fallback a 'primary' (calendario del robot)
     const calendarIdToWrite = targetCalendarId || 'primary';
 
