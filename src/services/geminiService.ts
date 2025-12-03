@@ -48,6 +48,7 @@ export const fetchRealGoogleCalendarEvents = async (dateStr: string, config?: Cl
 
     const data = await response.json();
     
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const events: CalendarEvent[] = (data.items || []).map((item: any) => {
       const start = item.start.dateTime || item.start.date;
       const end = item.end.dateTime || item.end.date;
@@ -98,7 +99,6 @@ export const validateBookingAvailability = async (booking: BookingDetails, confi
 };
 
 // --- SCRITTURA SUL CALENDARIO (BACKEND) ---
-// Modificato per accettare targetCalendarId
 export const createCalendarBooking = async (booking: BookingDetails, serviceAccountJson: any, ownerEmail: string, targetCalendarId: string): Promise<boolean> => {
     try {
         if (!serviceAccountJson) {
