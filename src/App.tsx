@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Service, AppStep, BookingDetails, TimeSlot, CalendarEvent, Booking, BookingStatus, ClientConfig } from './types';
 import { AVAILABLE_TIMES, getNextDays } from './constants';
@@ -17,42 +16,32 @@ import {
 import { getClientBySubdomain, getServices, createBooking, getBookings, updateBookingStatus } from './services/supabaseService';
 
 const App: React.FC = () => {
-  // -- CLIENT CONFIGURATION (From DB) --
   const [clientConfig, setClientConfig] = useState<ClientConfig | null>(null);
   const [isLoadingClient, setIsLoadingClient] = useState(true);
   const [errorClient, setErrorClient] = useState<string | null>(null);
-
-  // -- DATA STATE --
   const [services, setServices] = useState<Service[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-
-  // -- AUTH STATE --
   const [isLoginVisible, setIsLoginVisible] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<'CLIENT' | 'MASTER' | null>(null);
-
-  // -- APP FLOW STATE --
   const [step, setStep] = useState<AppStep>(AppStep.SERVICE_SELECTION);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedTime, setSelectedTime] = useState<TimeSlot | null>(null);
   const [dailyEvents, setDailyEvents] = useState<CalendarEvent[]>([]);
   const [isFetchingAvailability, setIsFetchingAvailability] = useState(false);
-  
   const [formData, setFormData] = useState({ name: '', surname: '', email: '', phone: '', notes: '' });
   const [confirmationMessage, setConfirmationMessage] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
 
-  // -- INITIALIZATION --
   useEffect(() => {
     const initApp = async () => {
       setIsLoadingClient(true);
       try {
-        // 1. Determine Subdomain
-        let subdomain = 'badhead1973'; // Default fallback for localhost
+        let subdomain = 'badhead1973'; 
         const host = window.location.hostname;
         if (!host.includes('localhost') && !host.includes('vercel.app')) {
            const parts = host.split('.');
@@ -61,7 +50,6 @@ const App: React.FC = () => {
         
         console.log("Loading client for subdomain:", subdomain);
 
-        // 2. Fetch Client Config from Supabase
         const config = await getClientBySubdomain(subdomain);
         
         if (!config) {
@@ -71,8 +59,6 @@ const App: React.FC = () => {
         }
         
         setClientConfig(config);
-
-        // 3. Fetch Services from Supabase
         const fetchedServices = await getServices(config.id);
         setServices(fetchedServices);
 
@@ -87,7 +73,6 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
-  // -- AVAILABILITY LOGIC --
   useEffect(() => {
     if (selectedDate && clientConfig) {
       setIsFetchingAvailability(true);
@@ -99,8 +84,6 @@ const App: React.FC = () => {
       setDailyEvents([]);
     }
   }, [selectedDate, clientConfig]);
-
-  // -- HANDLERS --
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,16 +105,15 @@ const App: React.FC = () => {
       setLoadingStatus('Salvataggio prenotazione...');
       await createBooking(clientConfig.id, bookingDetails);
       
-      // EMAIL DI CONFERMA
       setLoadingStatus('Invio email...');
       await sendConfirmationEmails(bookingDetails, clientConfig);
 
-      // SCRITTURA CALENDARIO AUTOMATICA (BACKEND)
       if (clientConfig.service_account_json) {
           setLoadingStatus('Sincronizzazione Calendario...');
           try {
               const saJson = JSON.parse(clientConfig.service_account_json);
-              await createCalendarBooking(bookingDetails, saJson, clientConfig.email_owner);
+              // PASSIAMO EMAIL PONTE COME TARGET
+              await createCalendarBooking(bookingDetails, saJson, clientConfig.email_owner, clientConfig.email_bridge || 'primary');
           } catch(e) {
               console.error("Errore parse JSON Service Account", e);
           }
@@ -156,8 +138,6 @@ const App: React.FC = () => {
     setIsAdminMode(true);
     setCurrentUserRole(role);
     setIsLoginVisible(false);
-    
-    // Load bookings when admin logs in
     const dbBookings = await getBookings(clientConfig.id);
     setBookings(dbBookings);
   };
@@ -169,16 +149,13 @@ const App: React.FC = () => {
     if (booking) {
         await sendBookingStatusEmail(booking, status, clientConfig);
     }
-    // Refresh list
     const dbBookings = await getBookings(clientConfig.id);
     setBookings(dbBookings);
   };
 
-  // -- RENDER HELPERS --
   if (isLoadingClient) return <div className="min-h-screen flex items-center justify-center text-gray-500">Caricamento {window.location.hostname}...</div>;
   if (errorClient) return <div className="min-h-screen flex items-center justify-center text-red-500 font-bold text-xl">{errorClient}</div>;
 
-  // Re-use logic for render (simplified for brevity, copied from original with minor prop changes)
   const isDateBookable = (date: Date): boolean => {
     if (!selectedService) return false;
     const { mode, startDate, endDate, daysOfWeek } = selectedService.availability;
@@ -224,7 +201,7 @@ const App: React.FC = () => {
           onUpdateServices={setServices} 
           onUpdateBookingStatus={handleUpdateBookingStatus} 
           onClose={() => { setIsAuthenticated(false); setIsAdminMode(false); }} 
-          clientConfig={clientConfig} // Pass config to Admin
+          clientConfig={clientConfig} 
         />
       ) : (
         <>
@@ -247,7 +224,6 @@ const App: React.FC = () => {
                 </div>
              )}
              {step === AppStep.DATE_SELECTION && (
-                 // Inline render of Date Time Selection using logic above
                  <div className="max-w-2xl mx-auto animate-fade-in">
                     <div className="mb-8"><h2 className="text-2xl font-bold text-gray-800">Quando?</h2><p className="text-gray-500">Scegli per {selectedService?.title}</p></div>
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6 overflow-x-auto flex gap-3 scrollbar-hide">
@@ -287,16 +263,7 @@ const App: React.FC = () => {
                  </div>
              )}
           </main>
-          
-          <footer className="border-t border-gray-200 py-8 mt-auto">
-            <div className="max-w-4xl mx-auto px-4 flex justify-between items-center text-sm">
-              <div className="text-gray-400">&copy; {new Date().getFullYear()} Open2Agenda.</div>
-              <button onClick={() => setIsLoginVisible(true)} className="text-gray-500 hover:text-indigo-600 flex items-center gap-2 transition-colors font-medium px-3 py-2 rounded-lg hover:bg-gray-100">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                Area Riservata
-              </button>
-            </div>
-          </footer>
+          <footer className="border-t border-gray-200 py-8 mt-auto"><div className="max-w-4xl mx-auto px-4 flex justify-between items-center text-sm"><div className="text-gray-400">&copy; {new Date().getFullYear()} Open2Agenda.</div><button onClick={() => setIsLoginVisible(true)} className="text-gray-500 hover:text-indigo-600 flex items-center gap-2 transition-colors font-medium px-3 py-2 rounded-lg hover:bg-gray-100">Area Riservata</button></div></footer>
         </>
       )}
     </div>
