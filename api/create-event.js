@@ -19,7 +19,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const { booking, serviceAccountJson, ownerEmail } = req.body;
+  // Ora riceviamo anche 'targetCalendarId'
+  const { booking, serviceAccountJson, ownerEmail, targetCalendarId } = req.body;
 
   if (!serviceAccountJson) {
     return res.status(400).json({ error: 'Mancano le credenziali del Service Account (Robot)' });
@@ -53,20 +54,19 @@ export default async function handler(req, res) {
         dateTime: endDateTime.toISOString(),
         timeZone: 'Europe/Rome',
       },
-      // 4. INVITIAMO IL CLIENTE (E opzionalmente l'utente)
       attendees: [
-        { email: ownerEmail }, // Il proprietario del business riceve l'invito
-        // { email: booking.clientEmail } // Decommentare se si vuole invitare anche l'utente finale
+        { email: ownerEmail }, // Invita il proprietario (Badhead)
       ],
     };
 
-    // 5. Scrittura sul Calendario del Robot con NOTIFICA FORZATA
-    const calendarId = 'primary'; 
+    // 4. Scrittura sul Calendario TARGET (open2agency) invece che 'primary'
+    // Se targetCalendarId non è fornito, fallback a 'primary' (calendario del robot)
+    const calendarIdToWrite = targetCalendarId || 'primary';
 
     const response = await calendar.events.insert({
-      calendarId: calendarId,
+      calendarId: calendarIdToWrite,
       requestBody: event,
-      sendUpdates: 'all', // <--- FONDAMENTALE: Invia l'email di invito e aggiorna il calendario degli ospiti
+      sendUpdates: 'all', // Manda notifiche agli invitati
     });
 
     console.log('Evento creato:', response.data.htmlLink);
