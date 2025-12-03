@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
 
 export default async function handler(req, res) {
-  // 1. Gestione CORS (per permettere chiamate dal sito)
+  // 1. Gestione CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -53,18 +53,20 @@ export default async function handler(req, res) {
         dateTime: endDateTime.toISOString(),
         timeZone: 'Europe/Rome',
       },
-      // 4. INVITIAMO IL CLIENTE
+      // 4. INVITIAMO IL CLIENTE (E opzionalmente l'utente)
       attendees: [
-        { email: ownerEmail }, // Il proprietario del business (es. badhead1973)
+        { email: ownerEmail }, // Il proprietario del business riceve l'invito
+        // { email: booking.clientEmail } // Decommentare se si vuole invitare anche l'utente finale
       ],
     };
 
-    // 5. Scrittura sul Calendario del Robot
+    // 5. Scrittura sul Calendario del Robot con NOTIFICA FORZATA
     const calendarId = 'primary'; 
 
     const response = await calendar.events.insert({
       calendarId: calendarId,
       requestBody: event,
+      sendUpdates: 'all', // <--- FONDAMENTALE: Invia l'email di invito e aggiorna il calendario degli ospiti
     });
 
     console.log('Evento creato:', response.data.htmlLink);
