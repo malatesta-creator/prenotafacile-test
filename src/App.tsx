@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Service, AppStep, BookingDetails, TimeSlot, CalendarEvent, Booking, BookingStatus, ClientConfig } from './types';
 import { AVAILABLE_TIMES, getNextDays } from './constants';
@@ -9,10 +8,10 @@ import LoginPanel from './components/LoginPanel';
 import { 
   generateBookingConfirmation, 
   validateBookingAvailability, 
-  fetchRealGoogleCalendarEvents,
-  createCalendarBooking,
-  sendConfirmationEmails,
-  sendBookingStatusEmail
+  fetchRealGoogleCalendarEvents, 
+  createCalendarBooking, 
+  sendConfirmationEmails, 
+  sendBookingStatusEmail 
 } from './services/geminiService';
 import { getClientBySubdomain, getServices, createBooking, getBookings, updateBookingStatus } from './services/supabaseService';
 
@@ -131,7 +130,7 @@ const App: React.FC = () => {
           setLoadingStatus('Sincronizzazione Calendario...');
           try {
               const saJson = JSON.parse(clientConfig.service_account_json);
-              await createCalendarBooking(bookingDetails, saJson);
+              await createCalendarBooking(bookingDetails, saJson, clientConfig.email_owner);
           } catch(e) {
               console.error("Errore parse JSON Service Account", e);
           }
