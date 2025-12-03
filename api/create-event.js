@@ -19,7 +19,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Ora riceviamo anche 'targetCalendarId'
   const { booking, serviceAccountJson, ownerEmail, targetCalendarId } = req.body;
 
   if (!serviceAccountJson) {
@@ -55,12 +54,11 @@ export default async function handler(req, res) {
         timeZone: 'Europe/Rome',
       },
       attendees: [
-        { email: ownerEmail }, // Invita il proprietario (Badhead)
+        { email: ownerEmail }, // Invita il proprietario
       ],
     };
 
-    // 4. Scrittura sul Calendario TARGET (open2agency) invece che 'primary'
-    // Se targetCalendarId non è fornito, fallback a 'primary' (calendario del robot)
+    // 4. Scrittura sul Calendario TARGET (open2agency) o fallback su primary
     const calendarIdToWrite = targetCalendarId || 'primary';
 
     const response = await calendar.events.insert({
