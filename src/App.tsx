@@ -4,7 +4,7 @@ import { Service, AppStep, BookingDetails, TimeSlot, CalendarEvent, Booking, Boo
 import { AVAILABLE_TIMES, getNextDays } from './constants';
 import ServiceCard from './components/ServiceCard';
 import CalendarLink from './components/CalendarLink';
-import AdminPanel from './components/AdminPanel';
+import AdminPanel from './components/AdminPanelV2';
 import LoginPanel from './components/LoginPanel';
 import { 
   generateBookingConfirmation, 
