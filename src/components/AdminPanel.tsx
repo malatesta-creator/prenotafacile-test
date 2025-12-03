@@ -9,23 +9,36 @@ interface AdminPanelProps {
   onUpdateServices: (services: Service[]) => void;
   onUpdateBookingStatus: (bookingId: string, status: BookingStatus) => Promise<void>;
   onClose: () => void;
-  clientConfig: ClientConfig; // Configurazione del cliente CORRENTE (o Master)
+  clientConfig: ClientConfig;
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ 
-    services, bookings, userRole, onUpdateServices, onUpdateBookingStatus, onClose, clientConfig 
+    services, 
+    bookings, 
+    userRole, 
+    onUpdateServices, 
+    onUpdateBookingStatus, 
+    onClose, 
+    clientConfig 
 }) => {
-  // Se sono Master, inizio dalla Dashboard, altrimenti dalle Prenotazioni
   const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'setup' | 'dashboard'>(userRole === 'MASTER' ? 'dashboard' : 'bookings');
   
   // -- MASTER DASHBOARD STATE --
   const [allClients, setAllClients] = useState<ClientConfig[]>([]);
-  const [targetClientId, setTargetClientId] = useState<string>(clientConfig.id); // Chi stiamo modificando?
+  const [targetClientId, setTargetClientId] = useState<string>(clientConfig.id);
   const [targetClientName, setTargetClientName] = useState<string>(clientConfig.business_name);
 
   // -- EDITING STATE --
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<Service>({ id: '', title: '', description: '', durationMinutes: 30, price: 0, imageUrl: '', availability: { mode: 'always' } });
+  const [formData, setFormData] = useState<Service>({ 
+    id: '', 
+    title: '', 
+    description: '', 
+    durationMinutes: 30, 
+    price: 0, 
+    imageUrl: '', 
+    availability: { mode: 'always' } 
+  });
   
   const [configData, setConfigData] = useState({
       apiKey: clientConfig.google_api_key || '',
@@ -50,7 +63,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   // Gestione modifica servizio
   useEffect(() => {
     if (editingId === 'new') {
-      setFormData({ id: '', title: 'Nuovo Servizio', description: '', durationMinutes: 60, price: 100, imageUrl: '', availability: { mode: 'always' } });
+      setFormData({ 
+        id: Date.now().toString(), 
+        title: 'Nuovo Servizio', 
+        description: '', 
+        durationMinutes: 60, 
+        price: 100, 
+        imageUrl: `https://picsum.photos/800/600?random=${Date.now()}`, 
+        availability: { mode: 'always' } 
+      });
     } else if (editingId) {
       const s = services.find(s => s.id === editingId);
       if (s) setFormData(s);
@@ -58,11 +79,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [editingId, services]);
 
   const handleSelectClientToEdit = (client: ClientConfig) => {
-      // Imposta questo cliente come target delle modifiche Setup
       setTargetClientId(client.id);
       setTargetClientName(client.business_name);
       
-      // Carica i suoi dati nel form
       setConfigData({
           apiKey: client.google_api_key || '',
           calendarId: client.email_bridge || '',
@@ -72,31 +91,36 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
           serviceAccountJson: client.service_account_json || ''
       });
 
-      // Vai al setup
       setActiveTab('setup');
   };
 
   const handleSaveService = async () => {
     setIsSaving(true);
     let updatedServices = [...services];
-    const cleanData: Service = { ...formData, durationMinutes: Number(formData.durationMinutes), price: Number(formData.price) };
+    const cleanData: Service = { 
+        ...formData, 
+        durationMinutes: Number(formData.durationMinutes), 
+        price: Number(formData.price) 
+    };
     
     if (editingId === 'new') updatedServices.push(cleanData);
     else updatedServices = updatedServices.map(s => s.id === editingId ? cleanData : s);
 
     try {
-        // Nota: Qui salviamo sempre per il clientConfig originale perché i servizi sono visualizzati per il contesto attuale
         await saveServices(clientConfig.id, updatedServices);
         onUpdateServices(updatedServices);
         setEditingId(null);
-    } catch (e) { alert("Errore salvataggio servizi"); console.error(e); }
-    finally { setIsSaving(false); }
+    } catch (e) { 
+        alert("Errore salvataggio servizi"); 
+        console.error(e); 
+    } finally { 
+        setIsSaving(false); 
+    }
   };
 
   const handleSaveConfig = async () => {
       setIsSaving(true);
       try {
-          // Salviamo per il targetClientId (che può essere diverso da noi se siamo Master)
           await updateClientConfig(targetClientId, {
               google_api_key: configData.apiKey,
               email_bridge: configData.calendarId,
@@ -106,8 +130,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
               service_account_json: configData.serviceAccountJson
           });
           alert(`Configurazione salvata per ${targetClientName}!`);
-      } catch (e) { alert("Errore salvataggio config"); console.error(e); }
-      finally { setIsSaving(false); }
+      } catch (e) { 
+          alert("Errore salvataggio config"); 
+          console.error(e); 
+      } finally { 
+          setIsSaving(false); 
+      }
   };
 
   const handleBookingAction = async (id: string, status: BookingStatus) => {
