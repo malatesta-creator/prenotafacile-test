@@ -367,7 +367,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {(formData.availability.mode === 'range' || formData.availability.mode === 'weekly') && (
                                     <div className="grid grid-cols-2 gap-4 mb-4">
                                         <div><label className="text-xs text-gray-500">Inizio</label><input type="date" value={formData.availability.startDate || ''} onChange={e => setFormData({...formData, availability: {...formData.availability, startDate: e.target.value}})} className="w-full p-2 border rounded text-sm" /></div>
-                                          <div><label className="text-xs text-gray-500">Fine</label><input type="date" value={formData.availability.endDate || ''} onChange={e => setFormData({...formData, availability: {...formData.availability, endDate: e.target.value}})} className="w-full p-2 border rounded text-sm" /></div>
+                                        <div><label className="text-xs text-gray-500">Fine</label><input type="date" value={formData.availability.endDate || ''} onChange={e => setFormData({...formData, availability: {...formData.availability, endDate: e.target.value}})} className="w-full p-2 border rounded text-sm" /></div>
                                     </div>
                                 )}
 
