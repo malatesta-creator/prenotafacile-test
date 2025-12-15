@@ -17,12 +17,17 @@ const BookingForm: React.FC<BookingFormProps> = ({ selectedService, selectedSlot
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
+        // CORREZIONE TS2741: Aggiunti clientPhone e notes
         const dummyBookingDetails: Omit<Booking, 'id' | 'createdAt' | 'status' | 'timeSlot' | 'service' | 'clientId'> = {
             date: '2025-12-30',
             clientName: 'Mario',
             clientSurname: 'Rossi',
             clientEmail: 'mario.rossi@example.com',
+            clientPhone: '1234567890', // ERA MANCANTE!
+            notes: 'Nota di test',      // ERA MANCANTE!
         };
+        
+        // Questo oggetto non è più necessario, ma lo lasciamo per la chiamata a onSubmit
         const dummyClientData: ClientData = {
             clientPhone: '1234567890',
             notes: 'Nota di test',
