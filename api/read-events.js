@@ -38,7 +38,6 @@ export default async function handler(req, res) {
     const calendar = google.calendar({ version: 'v3', auth: jwtClient });
 
     // 2. Calcolo Range Temporale (Tutto il giorno in UTC)
-    // Usiamo una finestra ampia per coprire tutti i fusi orari
     const timeMin = new Date(`${date}T00:00:00Z`).toISOString();
     const timeMax = new Date(`${date}T23:59:59Z`).toISOString();
 
@@ -52,19 +51,16 @@ export default async function handler(req, res) {
     });
 
     // 4. Privacy e Pulizia Dati
-    // Restituiamo al frontend SOLO gli orari occupati, senza titoli o dettagli privati.
     const cleanEvents = (response.data.items || []).map(event => ({
         id: event.id,
-        start: event.start.dateTime || event.start.date, // Supporto eventi tutto il giorno
+        start: event.start.dateTime || event.start.date, 
         end: event.end.dateTime || event.end.date,
-        // Non passiamo summary/description per privacy del cliente
     }));
 
     res.status(200).json({ success: true, events: cleanEvents });
 
   } catch (error) {
     console.error('Errore Backend Lettura:', error);
-    // Non rompiamo l'app se il calendario è inaccessibile, restituiamo vuoto
     res.status(500).json({ error: error.message, events: [] });
   }
 }
