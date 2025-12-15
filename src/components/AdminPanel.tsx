@@ -70,7 +70,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       if (currentConfig) {
         setConfigData({
             apiKey: currentConfig.google_api_key || '',
-            // NOME COLONNA DB DA VERIFICARE. Qui usiamo targetCalendarId per consistenza nel frontend
             targetCalendarId: currentConfig.email_bridge || '', 
             emailServiceId: currentConfig.emailjs_service_id || '',
             emailTemplateId: currentConfig.emailjs_template_id || '',
@@ -161,8 +160,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       try {
           const newConfigPayload = {
               google_api_key: configData.apiKey,
-              // Stiamo salvando l'ID del calendario del cliente qui
-              email_bridge: configData.targetCalendarId, 
+              email_bridge: configData.targetCalendarId, // Usa ancora 'email_bridge' nel DB
               emailjs_service_id: configData.emailServiceId,
               emailjs_template_id: configData.emailTemplateId,
               emailjs_public_key: configData.emailPublicKey,
@@ -369,7 +367,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 {(formData.availability.mode === 'range' || formData.availability.mode === 'weekly') && (
                                     <div className="grid grid-cols-2 gap-4 mb-4">
                                         <div><label className="text-xs text-gray-500">Inizio</label><input type="date" value={formData.availability.startDate || ''} onChange={e => setFormData({...formData, availability: {...formData.availability, startDate: e.target.value}})} className="w-full p-2 border rounded text-sm" /></div>
-                                        <div><label className="text-xs text-gray-500">Fine</label><input type="date" value={formData.availability.endDate || ''} onChange={e => setFormData({...formData, availability: {...formData.availability, endDate: e.target.value}})} className="w-full p-2 border rounded text-sm" /></div>
+                                          <div><label className="text-xs text-gray-500">Fine</label><input type="date" value={formData.availability.endDate || ''} onChange={e => setFormData({...formData, availability: {...formData.availability, endDate: e.target.value}})} className="w-full p-2 border rounded text-sm" /></div>
                                     </div>
                                 )}
 
@@ -407,12 +405,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                     </div>
                     
                     <div className="space-y-8">
-                        {/* SEZIONE 1: GOOGLE CALENDAR */}
+                        {/* SEZIONE 1: GOOGLE CALENDAR (ROBOT/SERVICE ACCOUNT) */}
                         <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 relative overflow-hidden">
                             <div className="absolute top-0 right-0 w-20 h-20 bg-blue-100 rounded-full blur-3xl opacity-50 -mr-10 -mt-10"></div>
                             <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2 relative z-10">
                                 <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs shadow-sm">1</span> 
-                                Integrazione Google Calendar (Disponibilità & Prenotazioni)
+                                Integrazione Google Calendar (Robot Service Account)
                             </h4>
                             
                             <div className="grid gap-5 relative z-10">
@@ -424,7 +422,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                         value={configData.targetCalendarId} 
                                         onChange={e => setConfigData({...configData, targetCalendarId: e.target.value})} 
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">L'ID del calendario del cliente (solitamente la sua email, es. badhead1973@gmail.com). **Il Service Account Robot deve avere i permessi per leggerlo/scriverci.**</p>
+                                    <p className="text-xs text-gray-500 mt-1">L'ID del calendario del cliente (es. badhead1973@gmail.com). **Il Service Account Robot deve avere i permessi.**</p>
                                 </div>
 
                                 <div>
@@ -435,13 +433,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                         value={configData.serviceAccountJson} 
                                         onChange={e => setConfigData({...configData, serviceAccountJson: e.target.value})} 
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">Il file JSON scaricato da Google Cloud Console per il Service Account, che corrisponde a <span className="font-bold text-gray-700">prenotafacile-robot@prenotafacile-479917.iam.gserviceaccount.com</span>.</p>
+                                    <p className="text-xs text-gray-500 mt-1">Il file JSON scaricato da Google Cloud Console per il Service Account.</p>
                                 </div>
                             </div>
                         </div>
 
-                        {/* SEZIONE 2: ALTRE API */}
+                        {/* SEZIONE 2: ALTRE API (Gemini e EmailJS) */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Gemini API (API Key) */}
                             <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
                                 <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                                     <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs shadow-sm">2</span> 
@@ -453,13 +452,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                 </div>
                             </div>
 
+                            {/* EmailJS (Notifiche) */}
                             <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
                                 <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
                                     <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs shadow-sm">3</span> 
-                                    EmailJS (Notifiche)
+                                    EmailJS (Notifiche Automatiche)
                                 </h4>
                                 <div className="space-y-3">
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">Service ID</label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Service ID</label>
                                     <input className="w-full border border-gray-300 p-2 rounded text-sm" placeholder="Service ID" value={configData.emailServiceId} onChange={e => setConfigData({...configData, emailServiceId: e.target.value})} />
                                     <label className="block text-sm font-bold text-gray-700 mb-1">Template ID</label>
                                     <input className="w-full border border-gray-300 p-2 rounded text-sm" placeholder="Template ID" value={configData.emailTemplateId} onChange={e => setConfigData({...configData, emailTemplateId: e.target.value})} />
