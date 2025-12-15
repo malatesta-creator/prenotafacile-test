@@ -45,7 +45,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [processingAction, setProcessingAction] = useState<{id: string, status: BookingStatus} | null>(null);
 
-  // -- COMPUTED PROPERTIES (Il cuore della logica Master vs Client) --
+  // -- COMPUTED PROPERTIES --
   // Se sono Master e ho selezionato un cliente, uso i dati "managed". Altrimenti uso i props iniziali.
   const currentConfig = (userRole === 'MASTER' && managedClient) ? managedClient : initialConfig;
   const currentServices = (userRole === 'MASTER' && managedClient) ? managedServices : initialServices;
@@ -67,14 +67,16 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Aggiorna il form di setup quando cambia il cliente visualizzato
   useEffect(() => {
-      setConfigData({
-          apiKey: currentConfig.google_api_key || '',
-          targetCalendarId: currentConfig.email_bridge || '', // Campo usato per ID Calendario Target
-          emailServiceId: currentConfig.emailjs_service_id || '',
-          emailTemplateId: currentConfig.emailjs_template_id || '',
-          emailPublicKey: currentConfig.emailjs_public_key || '',
-          serviceAccountJson: currentConfig.service_account_json || ''
-      });
+      if (currentConfig) {
+        setConfigData({
+            apiKey: currentConfig.google_api_key || '',
+            targetCalendarId: currentConfig.email_bridge || '', 
+            emailServiceId: currentConfig.emailjs_service_id || '',
+            emailTemplateId: currentConfig.emailjs_template_id || '',
+            emailPublicKey: currentConfig.emailjs_public_key || '',
+            serviceAccountJson: currentConfig.service_account_json || ''
+        });
+      }
   }, [currentConfig]);
 
   // Popola il form servizi quando si clicca modifica
@@ -126,7 +128,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       loadClientsList(); // Refresh lista
   };
 
-  // -- GENERIC ACTIONS (Adattate per usare currentConfig) --
+  // -- GENERIC ACTIONS --
 
   const handleSaveService = async () => {
     setIsSaving(true);
@@ -137,14 +139,12 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     else updatedServices = updatedServices.map(s => s.id === editingId ? cleanData : s);
 
     try {
-        // Salvataggio su DB usando l'ID del cliente ATTUALE (Managed o Login)
         await saveServices(currentConfig.id, updatedServices);
         
-        // Aggiornamento stato locale
         if (userRole === 'MASTER' && managedClient) {
             setManagedServices(updatedServices);
         } else {
-            onUpdateServices(updatedServices); // Aggiorna stato padre in App.tsx
+            onUpdateServices(updatedServices);
         }
         setEditingId(null);
     } catch (e) { alert("Errore salvataggio servizi"); console.error(e); } 
@@ -165,7 +165,6 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
 
           await updateClientConfig(currentConfig.id, newConfigPayload);
           
-          // Aggiorna oggetto locale
           if (managedClient) {
               setManagedClient({ ...managedClient, ...newConfigPayload });
           } else {
@@ -183,13 +182,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
     try {
         await updateBookingStatus(id, status);
         
-        // Invia email notifica usando la config CORRENTE
         const booking = currentBookings.find(b => b.id === id);
         if (booking) await sendBookingStatusEmail(booking, status, currentConfig);
 
-        // Aggiorna stato locale
         if (userRole === 'MASTER' && managedClient) {
-            // Ricarica bookings dal DB per sicurezza o aggiorna localmente
             const updated = currentBookings.map(b => b.id === id ? { ...b, status } : b);
             setManagedBookings(updated);
         } else {
@@ -219,7 +215,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                 )}
                 {userRole === 'MASTER' 
                     ? (managedClient ? `Gestione: ${managedClient.business_name}` : "Master Dashboard") 
-                    : `Admin: ${currentConfig.business_name}`}
+                    : `Admin: ${currentConfig?.business_name || 'Caricamento...'}`}
             </h1>
         </div>
         <div className="flex gap-4">
@@ -275,7 +271,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
         {activeTab === 'bookings' && !showDashboardOnly && (
             <div className="space-y-4 animate-fade-in">
                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-gray-800">Prenotazioni: {currentConfig.business_name}</h2>
+                    <h2 className="text-xl font-bold text-gray-800">Prenotazioni: {currentConfig?.business_name}</h2>
                     <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-bold">{currentBookings.length} Totali</span>
                 </div>
                 
@@ -400,7 +396,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
                 <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
                     <div className="border-b border-gray-100 pb-6 mb-6">
-                        <h3 className="font-bold text-2xl text-gray-900">Setup Tecnico: {currentConfig.business_name}</h3>
+                        <h3 className="font-bold text-2xl text-gray-900">Setup Tecnico: {currentConfig?.business_name}</h3>
                         <p className="text-sm text-gray-500 mt-1">Configura le integrazioni esterne per questo cliente.</p>
                     </div>
                     
@@ -418,11 +414,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <label className="block text-sm font-bold text-gray-700 mb-1">ID Calendario Target (Email)</label>
                                     <input 
                                         className="w-full border border-gray-300 p-3 rounded-lg font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                        placeholder={currentConfig.email_owner}
+                                        placeholder={currentConfig?.email_owner}
                                         value={configData.targetCalendarId} 
                                         onChange={e => setConfigData({...configData, targetCalendarId: e.target.value})} 
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">Se vuoto, userò l'email del proprietario ({currentConfig.email_owner}).</p>
+                                    <p className="text-xs text-gray-500 mt-1">Se vuoto, userò l'email del proprietario ({currentConfig?.email_owner}).</p>
                                 </div>
 
                                 <div>
