@@ -42,7 +42,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   
   const [configData, setConfigData] = useState({
       apiKey: clientConfig.google_api_key || '',
-      calendarId: clientConfig.email_bridge || '', // Usato ora come ID alternativo se diverso dall'email owner
+      calendarId: clientConfig.email_bridge || '', 
       emailServiceId: clientConfig.emailjs_service_id || '',
       emailTemplateId: clientConfig.emailjs_template_id || '',
       emailPublicKey: clientConfig.emailjs_public_key || '',
