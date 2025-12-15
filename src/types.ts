@@ -45,7 +45,7 @@ export interface Service {
 
 // Dati necessari per le prenotazioni nel frontend
 export interface TimeSlot {
-    id: string; // ID per coerenza
+    id: string; 
     startTime: string; // es: "10:00"
     endTime: string;   // es: "11:00"
 }
@@ -73,7 +73,7 @@ export interface Booking {
     clientName: string;
     clientSurname: string;
     clientEmail: string;
-    clientPhone: string; // Questo risolve l'errore TS2352
+    clientPhone: string; 
     notes?: string;
 
     // Servizio prenotato
