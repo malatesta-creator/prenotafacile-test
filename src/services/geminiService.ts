@@ -25,64 +25,58 @@ export const generateBookingConfirmation = async (booking: BookingDetails, confi
   }
 };
 
-// --- LOGICA DOPPIO CONTROLLO (Ponte + Proprietario) ---
+// --- LETTURA CALENDARIO (SERVER-SIDE) ---
+// Ora passa attraverso api/read-events per poter leggere calendari PRIVATI usando il Service Account
 export const fetchRealGoogleCalendarEvents = async (dateStr: string, config?: ClientConfig): Promise<CalendarEvent[]> => {
-  const apiKey = config?.google_api_key;
-  
-  // Definiamo quali calendari controllare: Ponte E Proprietario
-  const calendarsToCheck = Array.from(new Set([
-    config?.email_bridge, 
-    config?.email_owner
-  ].filter((email): email is string => !!email && email.trim() !== '')));
+  const targetCalendarId = config?.email_owner;
+  const serviceAccountJson = config?.service_account_json;
 
-  if (!apiKey || calendarsToCheck.length === 0 || apiKey.includes('INCOLLA_QUI')) {
-    console.warn("⚠️ Configurazione Google Calendar incompleta. Uso dati Mock.");
+  // Se siamo in localhost o mancano le credenziali, usiamo i mock per non bloccare lo sviluppo
+  if (!targetCalendarId || !serviceAccountJson || window.location.hostname.includes('localhost')) {
+    if (window.location.hostname.includes('localhost')) {
+       console.warn("⚠️ LOCALHOST DETECTED: Uso dati mock per lettura calendario (le API Vercel non girano in locale senza setup specifico).");
+    }
     return getMockCalendarEvents(dateStr);
   }
 
-  const timeMin = new Date(`${dateStr}T00:00:00`).toISOString();
-  const timeMax = new Date(`${dateStr}T23:59:59`).toISOString();
-
-  // Funzione Helper per scaricare un singolo calendario
-  const fetchCalendar = async (calendarId: string): Promise<CalendarEvent[]> => {
-    try {
-      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?key=${apiKey}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
-      const response = await fetch(url);
+  try {
+      console.log(`📅 Lettura calendario via Server per: ${targetCalendarId}`);
+      
+      const response = await fetch('/api/read-events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+              date: dateStr,
+              serviceAccountJson: JSON.parse(serviceAccountJson),
+              targetCalendarId: targetCalendarId
+          }),
+      });
       
       if (!response.ok) {
-        // Log specifico per debuggare i permessi
-        console.warn(`Impossibile leggere calendario ${calendarId} (Status: ${response.status}). Verifica che sia 'Pubblico' o condiviso.`);
+        console.warn(`Errore API lettura calendario: ${response.status}`);
         return [];
       }
 
       const data = await response.json();
+      
+      // Mappiamo la risposta del server nel formato dell'app
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (data.items || []).map((item: any) => {
-        const start = item.start.dateTime || item.start.date;
-        const end = item.end.dateTime || item.end.date;
-        const startDate = new Date(start);
-        const endDate = new Date(end);
-        const durationMinutes = (endDate.getTime() - startDate.getTime()) / 60000;
-        const startTime = startDate.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-        
-        return { 
-          id: item.id, 
-          title: 'Non Disponibile', 
-          startTime: startTime, 
+      return (data.events || []).map((item: any) => {
+         // Calcolo durata
+         const start = new Date(item.start);
+         const end = new Date(item.end);
+         const durationMinutes = (end.getTime() - start.getTime()) / 60000;
+         
+         return { 
+          id: item.id || 'evt', 
+          title: 'Occupato', 
+          startTime: start.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }), 
           durationMinutes: durationMinutes 
         };
       });
-    } catch (error) {
-      console.error(`Errore fetch calendario ${calendarId}:`, error);
-      return [];
-    }
-  };
 
-  try {
-    const results = await Promise.all(calendarsToCheck.map(id => fetchCalendar(id)));
-    return results.flat();
   } catch (error) {
-    console.error("Errore generale fetch calendari:", error);
+    console.error("Errore fetch calendario server-side:", error);
     return getMockCalendarEvents(dateStr);
   }
 };
@@ -94,9 +88,11 @@ export const validateBookingAvailability = async (booking: BookingDetails, confi
     const apiKey = config?.google_api_key;
     if (!apiKey) return { isValid: true, message: "Configurazione calendario mancante. Procedo." };
 
-    const client = getAIClient(apiKey);
+    // Passiamo config per permettere la lettura tramite Service Account
     const events = await fetchRealGoogleCalendarEvents(booking.date, config);
     
+    // Se non ci sono eventi (o array vuoto), Gemini confermerà disponibilità
+    const client = getAIClient(apiKey);
     const verificationPrompt = `
       Calendar Data: ${JSON.stringify(events)}. 
       Request: ${booking.timeSlot.startTime} for ${booking.service.durationMinutes} min. 
@@ -119,14 +115,13 @@ export const validateBookingAvailability = async (booking: BookingDetails, confi
   }
 };
 
-// --- SCRITTURA SUL CALENDARIO (BACKEND) ---
+// --- SCRITTURA SUL CALENDARIO (SERVER-SIDE) ---
 export const createCalendarBooking = async (booking: BookingDetails, serviceAccountJson: any, ownerEmail: string, targetCalendarId: string): Promise<boolean> => {
     
-    // CHECK LOCALHOST (Per evitare errori 404 in sviluppo locale)
+    // CHECK LOCALHOST
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        console.warn("⚠️ SEI IN LOCALE (LOCALHOST): Il backend Vercel '/api/create-event' non esiste qui.");
-        console.warn("⚠️ SIMULO IL SUCCESSO. In produzione (su Vercel) funzionerà veramente.");
-        alert("SIMULAZIONE SCRITTURA CALENDARIO\n\nSei in localhost, quindi il backend serverless non è attivo.\nIn produzione, l'evento verrebbe scritto su: " + targetCalendarId);
+        console.warn("⚠️ SEI IN LOCALE (LOCALHOST): Scrittura simulata.");
+        alert("SIMULAZIONE SCRITTURA CALENDARIO\n\nTarget: " + targetCalendarId + "\n\n(In produzione su Vercel scriverebbe davvero)");
         return true;
     }
 
@@ -136,7 +131,7 @@ export const createCalendarBooking = async (booking: BookingDetails, serviceAcco
             return false;
         }
 
-        console.log(`🔄 Tentativo scrittura su Calendar ID: ${targetCalendarId}...`);
+        console.log(`🔄 Scrittura diretta su Calendar ID: ${targetCalendarId}`);
         
         const response = await fetch('/api/create-event', {
             method: 'POST',
@@ -153,8 +148,7 @@ export const createCalendarBooking = async (booking: BookingDetails, serviceAcco
 
         if (!response.ok) {
             console.error("❌ Errore Google Calendar API:", data);
-            // Alert fondamentale per capire se i permessi mancano
-            alert(`ATTENZIONE: Errore scrittura Calendario.\n\nGoogle risponde: "${data.error}"\n\nDettagli: L'utente robot non riesce a scrivere su ${targetCalendarId}. Controlla i permessi.`);
+            alert(`ATTENZIONE: Errore scrittura Calendario.\n\nGoogle risponde: "${data.error}"\n\nDettagli: Verifica che il Robot (client_email nel JSON) abbia il permesso "Apportare modifiche agli eventi" sul calendario di ${targetCalendarId}.`);
             return false;
         }
 
