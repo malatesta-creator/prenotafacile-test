@@ -1,130 +1,172 @@
-import { supabase } from '../lib/supabase';
-import { Service, Booking, ClientConfig, BookingStatus } from '../types';
+import { createClient } from '@supabase/supabase-js';
+import { Service, Booking, BookingStatus, ClientConfig, TimeSlot, ClientData } from '../types';
+import { v4 as uuidv4 } from 'uuid';
 
-// ----------------------------------------------------
-// AUTENTICAZIONE E CONFIGURAZIONE CLIENTE
-// ----------------------------------------------------
+// Inizializzazione Supabase (sostituisci con le tue variabili d'ambiente reali)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'YOUR_SUPABASE_URL';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
+
+if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("Supabase URL or Key not configured!");
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// --- AUTENTICAZIONE (Solo per il Master/Admin Panel) ---
+
+export const signInWithPassword = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+};
+
+export const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+};
+
+export const getCurrentUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    return user;
+};
+
+
+// --- GESTIONE DATI CLIENTI (ADMIN) ---
+
+export const getClientConfigById = async (clientId: string): Promise<ClientConfig | null> => {
+    const { data, error } = await supabase.from('clients').select('*').eq('id', clientId).single();
+    if (error) return null;
+    return data as ClientConfig;
+};
 
 export const getClientBySubdomain = async (subdomain: string): Promise<ClientConfig | null> => {
-  const { data, error } = await supabase.from('clients').select('*').eq('subdomain', subdomain).single();
-  if (error) return null;
-  return data as ClientConfig;
-};
-
-export const authenticateUser = async (email: string, passwordAttempt: string): Promise<{ success: boolean; role?: 'MASTER' | 'CLIENT'; config?: ClientConfig }> => {
-  const { data: users, error } = await supabase.from('clients').select('*').eq('email_owner', email);
-  
-  if (error || !users || users.length === 0) return { success: false };
-  
-  const user = users.find(u => u.password === passwordAttempt);
-  
-  if (!user) return { success: false };
-  
-  const role = user.subdomain === 'master' ? 'MASTER' : 'CLIENT';
-  
-  return { success: true, role, config: user as ClientConfig };
-};
-
-/**
- * Aggiorna la configurazione di un cliente specifico.
- * Il campo "targetCalendarId" del frontend viene mappato su "email_bridge" nel DB.
- */
-export const updateClientConfig = async (clientId: string, config: Partial<ClientConfig>) => {
-    // Mappatura necessaria per salvare i dati corretti nel DB
-    const dbConfig: Record<string, any> = { ...config };
     
-    // Assumendo che il campo DB sia ancora 'email_bridge' e che il frontend passi 'targetCalendarId'
-    if (dbConfig.targetCalendarId !== undefined) {
-        dbConfig['email_bridge'] = dbConfig['targetCalendarId'];
-        delete dbConfig['targetCalendarId'];
+    // ******************************************************************************
+    // *** CORREZIONE CRITICA: FALLBACK PER URL ROOT DI VERCEL (subdomain vuoto) ***
+    // Usa 'badhead1973' se il sottodominio è vuoto. 
+    // Rimuovi questa riga quando passi a una configurazione con sottodomini reali.
+    const subdomainToUse = subdomain || 'badhead1973'; 
+    // ******************************************************************************
+
+    const { data, error } = await supabase.from('clients').select('*').eq('subdomain', subdomainToUse).single();
+    
+    if (error) {
+        console.error("Errore nel recupero del cliente per sottodominio:", error);
+        return null;
     }
-    
-    // Assicuriamoci che tutte le chiavi siano mappate correttamente prima dell'update (es: google_api_key, service_account_json)
-    // Se ClientConfig nel tuo 'types.ts' usa nomi camelCase (es. imageUrl), qui dovresti mappare a snake_case (es. image_url)
-    
-    await supabase.from('clients').update(dbConfig).eq('id', clientId);
+    return data as ClientConfig;
 };
 
-
-// ----------------------------------------------------
-// MASTER DASHBOARD (Recupera tutti i clienti, escluso il Master)
-// ----------------------------------------------------
+export const updateClientConfig = async (clientId: string, config: Partial<ClientConfig>) => {
+    const { error } = await supabase.from('clients').update(config).eq('id', clientId);
+    if (error) throw error;
+};
 
 export const getAllClients = async (): Promise<ClientConfig[]> => {
-  const { data } = await supabase.from('clients').select('*').neq('subdomain', 'master');
-  return (data as ClientConfig[]) || [];
+    const { data, error } = await supabase.from('clients').select('*');
+    if (error) {
+        console.error("Errore nel recupero di tutti i clienti:", error);
+        return [];
+    }
+    return data as ClientConfig[];
 };
 
 
-// ----------------------------------------------------
-// SERVIZI
-// ----------------------------------------------------
+// --- GESTIONE SERVIZI ---
 
 export const getServices = async (clientId: string): Promise<Service[]> => {
-  const { data } = await supabase.from('services').select('*').eq('client_id', clientId);
-  return (data || []).map((s: any) => ({
-    id: s.id, 
-    title: s.title, 
-    description: s.description, 
-    durationMinutes: s.duration, // Mappa DB 'duration' a 'durationMinutes' nel Frontend
-    price: s.price, 
-    imageUrl: s.image_url, 
-    availability: typeof s.availability === 'string' ? JSON.parse(s.availability) : s.availability
-  })) as Service[];
+    const { data, error } = await supabase.from('clients').select('services_json').eq('id', clientId).single();
+    if (error || !data || !data.services_json) {
+        console.warn(`Nessun servizio trovato per il cliente ${clientId}`);
+        return [];
+    }
+    return data.services_json as Service[];
 };
 
 export const saveServices = async (clientId: string, services: Service[]) => {
-  await supabase.from('services').delete().eq('client_id', clientId);
-  const dbServices = services.map(s => ({
-    client_id: clientId, 
-    title: s.title, 
-    description: s.description, 
-    duration: s.durationMinutes, // Mappa 'durationMinutes' a DB 'duration'
-    price: s.price, 
-    image_url: s.imageUrl, 
-    availability: s.availability
-  }));
-  await supabase.from('services').insert(dbServices);
+    const { error } = await supabase.from('clients').update({ services_json: services }).eq('id', clientId);
+    if (error) throw error;
 };
 
 
-// ----------------------------------------------------
-// PRENOTAZIONI
-// ----------------------------------------------------
+// --- GESTIONE PRENOTAZIONI ---
 
 export const getBookings = async (clientId: string): Promise<Booking[]> => {
-  const { data } = await supabase.from('bookings').select('*').eq('client_id', clientId);
-  
-  return (data || []).map((b: any) => ({
-    id: b.id, 
-    createdAt: b.created_at, 
-    status: b.status, 
-    date: b.date,
-    timeSlot: { id: b.id, startTime: b.time_slot }, 
-    clientName: b.client_name, 
-    clientSurname: b.client_surname, 
-    clientEmail: b.client_email,
-    clientPhone: b.client_phone, 
-    notes: b.notes, 
-    service: { title: b.service_title } as Service
-  })) as Booking[];
+    const { data, error } = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('date', { ascending: true })
+        .order('time_start', { ascending: true });
+
+    if (error) {
+        console.error("Errore nel recupero delle prenotazioni:", error);
+        return [];
+    }
+
+    // Mappatura per adattare i dati del DB al tipo Booking
+    return data.map(dbBooking => ({
+        id: dbBooking.id,
+        clientId: dbBooking.client_id,
+        clientName: dbBooking.client_name,
+        clientSurname: dbBooking.client_surname,
+        clientEmail: dbBooking.client_email,
+        date: dbBooking.date,
+        timeSlot: {
+            startTime: dbBooking.time_start,
+            endTime: dbBooking.time_end,
+        } as TimeSlot,
+        service: dbBooking.service_json as Service, // Assumiamo che service_json sia Service
+        status: dbBooking.status as BookingStatus,
+        createdAt: dbBooking.created_at,
+    })) as Booking[];
 };
 
-export const createBooking = async (clientId: string, booking: any) => {
-  await supabase.from('bookings').insert({
-    client_id: clientId, 
-    service_title: booking.service.title, 
-    date: booking.date,
-    time_slot: booking.timeSlot.startTime, 
-    client_name: booking.clientName,
-    client_surname: booking.clientSurname, 
-    client_email: booking.clientEmail,
-    client_phone: booking.clientPhone, 
-    notes: booking.notes, 
-    status: 'PENDING'
-  });
+export const createBooking = async (booking: Omit<Booking, 'id' | 'createdAt'>, clientData: ClientData) => {
+    
+    // Costruisci l'oggetto da salvare nel DB (deve corrispondere alla struttura della tabella Supabase)
+    const dbPayload = {
+        id: uuidv4(), // Genera un ID univoco
+        client_id: booking.clientId,
+        client_name: booking.clientName,
+        client_surname: booking.clientSurname,
+        client_email: booking.clientEmail,
+        date: booking.date,
+        time_start: booking.timeSlot.startTime,
+        time_end: booking.timeSlot.endTime,
+        service_json: booking.service, // Salva l'oggetto Service come JSONB
+        status: BookingStatus.PENDING,
+        created_at: new Date().toISOString(),
+        client_data_json: clientData, // Salva dati aggiuntivi del cliente (es. telefono, note)
+    };
+
+    const { data, error } = await supabase.from('bookings').insert(dbPayload).select().single();
+
+    if (error) throw error;
+
+    // Mappa i dati salvati a un oggetto Booking completo (opzionale, per coerenza)
+    return {
+        id: data.id,
+        clientId: data.client_id,
+        clientName: data.client_name,
+        clientSurname: data.client_surname,
+        clientEmail: data.client_email,
+        date: data.date,
+        timeSlot: {
+            startTime: data.time_start,
+            endTime: data.time_end,
+        } as TimeSlot,
+        service: data.service_json as Service,
+        status: data.status as BookingStatus,
+        createdAt: data.created_at,
+    } as Booking;
 };
 
 export const updateBookingStatus = async (bookingId: string, status: BookingStatus) => {
-  await supabase.from('bookings').update({ status }).eq('id', bookingId);
+    const { error } = await supabase
+        .from('bookings')
+        .update({ status: status })
+        .eq('id', bookingId);
+
+    if (error) throw error;
 };
