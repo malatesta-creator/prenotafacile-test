@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Service, Booking, BookingStatus, ClientConfig } from '../types';
-import { saveServices, updateClientConfig, getAllClients } from '../services/supabaseService';
+import { saveServices, updateClientConfig, getAllClients, getServices, getBookings, updateBookingStatus } from '../services/supabaseService';
+import { sendBookingStatusEmail } from '../services/geminiService';
 
 interface AdminPanelProps {
   services: Service[];
@@ -13,279 +14,321 @@ interface AdminPanelProps {
 }
 
 const AdminPanel: React.FC<AdminPanelProps> = ({ 
-    services, 
-    bookings, 
+    services: initialServices, 
+    bookings: initialBookings, 
     userRole, 
     onUpdateServices, 
     onUpdateBookingStatus, 
     onClose, 
-    clientConfig 
+    clientConfig: initialConfig 
 }) => {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'setup' | 'dashboard'>(userRole === 'MASTER' ? 'dashboard' : 'bookings');
-  
-  // -- MASTER DASHBOARD STATE --
+  // -- STATE GESTIONE MASTER --
   const [allClients, setAllClients] = useState<ClientConfig[]>([]);
-  const [targetClientId, setTargetClientId] = useState<string>(clientConfig.id);
-  const [targetClientName, setTargetClientName] = useState<string>(clientConfig.business_name);
-  const [targetClientSubdomain, setTargetClientSubdomain] = useState<string>(clientConfig.subdomain);
-
-  // -- EDITING STATE --
+  const [managedClient, setManagedClient] = useState<ClientConfig | null>(null);
+  const [managedServices, setManagedServices] = useState<Service[]>([]);
+  const [managedBookings, setManagedBookings] = useState<Booking[]>([]);
+  
+  // -- STATE UI --
+  const [activeTab, setActiveTab] = useState<'bookings' | 'services' | 'setup' | 'dashboard'>('bookings');
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  
+  // -- STATE EDITING --
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Service>({ 
-    id: '', 
-    title: '', 
-    description: '', 
-    durationMinutes: 30, 
-    price: 0, 
-    imageUrl: '', 
-    availability: { mode: 'always' } 
+    id: '', title: '', description: '', durationMinutes: 30, price: 0, imageUrl: '', availability: { mode: 'always' } 
   });
   
-  // Config Data: Mappiamo i campi del DB sui nuovi concetti
-  // email_bridge nel DB ora lo usiamo come "Target Calendar ID" generico
+  // -- STATE SETUP FORM --
   const [configData, setConfigData] = useState({
-      apiKey: clientConfig.google_api_key || '',
-      targetCalendarId: clientConfig.email_bridge || '', 
-      emailServiceId: clientConfig.emailjs_service_id || '',
-      emailTemplateId: clientConfig.emailjs_template_id || '',
-      emailPublicKey: clientConfig.emailjs_public_key || '',
-      serviceAccountJson: clientConfig.service_account_json || ''
+      apiKey: '', targetCalendarId: '', emailServiceId: '', emailTemplateId: '', emailPublicKey: '', serviceAccountJson: ''
   });
   const [isSaving, setIsSaving] = useState(false);
-
-  // -- BOOKING ACTION STATE --
   const [processingAction, setProcessingAction] = useState<{id: string, status: BookingStatus} | null>(null);
 
+  // -- COMPUTED PROPERTIES (Il cuore della logica Master vs Client) --
+  // Se sono Master e ho selezionato un cliente, uso i dati "managed". Altrimenti uso i props iniziali.
+  const currentConfig = (userRole === 'MASTER' && managedClient) ? managedClient : initialConfig;
+  const currentServices = (userRole === 'MASTER' && managedClient) ? managedServices : initialServices;
+  const currentBookings = (userRole === 'MASTER' && managedClient) ? managedBookings : initialBookings;
+  
+  // Se sono Master ma NON ho selezionato un cliente, forzo la dashboard
+  const showDashboardOnly = userRole === 'MASTER' && !managedClient;
+
+  // -- INIT --
   useEffect(() => {
     if (userRole === 'MASTER') {
-        getAllClients().then(clients => setAllClients(clients));
+        loadClientsList();
+        setActiveTab('dashboard');
+    } else {
+        // Se sono un cliente normale, vado alle prenotazioni
+        setActiveTab('bookings');
     }
   }, [userRole]);
 
+  // Aggiorna il form di setup quando cambia il cliente visualizzato
+  useEffect(() => {
+      setConfigData({
+          apiKey: currentConfig.google_api_key || '',
+          targetCalendarId: currentConfig.email_bridge || '', // Campo usato per ID Calendario Target
+          emailServiceId: currentConfig.emailjs_service_id || '',
+          emailTemplateId: currentConfig.emailjs_template_id || '',
+          emailPublicKey: currentConfig.emailjs_public_key || '',
+          serviceAccountJson: currentConfig.service_account_json || ''
+      });
+  }, [currentConfig]);
+
+  // Popola il form servizi quando si clicca modifica
   useEffect(() => {
     if (editingId === 'new') {
       setFormData({ 
-        id: Date.now().toString(), 
-        title: 'Nuovo Servizio', 
-        description: '', 
-        durationMinutes: 60, 
-        price: 100, 
-        imageUrl: `https://picsum.photos/800/600?random=${Date.now()}`, 
-        availability: { mode: 'always' } 
+        id: Date.now().toString(), title: 'Nuovo Servizio', description: '', durationMinutes: 60, price: 100, 
+        imageUrl: `https://picsum.photos/800/600?random=${Date.now()}`, availability: { mode: 'always' } 
       });
     } else if (editingId) {
-      const s = services.find(s => s.id === editingId);
+      const s = currentServices.find(s => s.id === editingId);
       if (s) setFormData(s);
     }
-  }, [editingId, services]);
+  }, [editingId, currentServices]);
 
-  const handleSelectClientToEdit = (client: ClientConfig) => {
-      setTargetClientId(client.id);
-      setTargetClientName(client.business_name);
-      setTargetClientSubdomain(client.subdomain);
-      
-      setConfigData({
-          apiKey: client.google_api_key || '',
-          targetCalendarId: client.email_bridge || '', // Usiamo questo campo come ID Calendario Target
-          emailServiceId: client.emailjs_service_id || '',
-          emailTemplateId: client.emailjs_template_id || '',
-          emailPublicKey: client.emailjs_public_key || '',
-          serviceAccountJson: client.service_account_json || ''
-      });
+  // -- MASTER ACTIONS --
 
-      setActiveTab('setup');
+  const loadClientsList = async () => {
+      const clients = await getAllClients();
+      setAllClients(clients);
   };
+
+  const handleManageClient = async (client: ClientConfig) => {
+      setIsLoadingData(true);
+      try {
+          // 1. Scarica i dati freschi del cliente selezionato
+          const [srvs, bks] = await Promise.all([
+              getServices(client.id),
+              getBookings(client.id)
+          ]);
+          
+          setManagedClient(client);
+          setManagedServices(srvs);
+          setManagedBookings(bks);
+          setActiveTab('bookings'); // Porta subito alle prenotazioni
+      } catch (error) {
+          console.error("Errore caricamento dati cliente", error);
+          alert("Errore nel caricamento dei dati del cliente.");
+      } finally {
+          setIsLoadingData(false);
+      }
+  };
+
+  const handleBackToDashboard = () => {
+      setManagedClient(null);
+      setManagedServices([]);
+      setManagedBookings([]);
+      setActiveTab('dashboard');
+      loadClientsList(); // Refresh lista
+  };
+
+  // -- GENERIC ACTIONS (Adattate per usare currentConfig) --
 
   const handleSaveService = async () => {
     setIsSaving(true);
-    let updatedServices = [...services];
-    const cleanData: Service = { 
-        ...formData, 
-        durationMinutes: Number(formData.durationMinutes), 
-        price: Number(formData.price) 
-    };
+    let updatedServices = [...currentServices];
+    const cleanData: Service = { ...formData, durationMinutes: Number(formData.durationMinutes), price: Number(formData.price) };
     
     if (editingId === 'new') updatedServices.push(cleanData);
     else updatedServices = updatedServices.map(s => s.id === editingId ? cleanData : s);
 
     try {
-        await saveServices(clientConfig.id, updatedServices);
-        onUpdateServices(updatedServices);
+        // Salvataggio su DB usando l'ID del cliente ATTUALE (Managed o Login)
+        await saveServices(currentConfig.id, updatedServices);
+        
+        // Aggiornamento stato locale
+        if (userRole === 'MASTER' && managedClient) {
+            setManagedServices(updatedServices);
+        } else {
+            onUpdateServices(updatedServices); // Aggiorna stato padre in App.tsx
+        }
         setEditingId(null);
-    } catch (e) { 
-        alert("Errore salvataggio servizi"); 
-        console.error(e); 
-    } finally { 
-        setIsSaving(false); 
-    }
+    } catch (e) { alert("Errore salvataggio servizi"); console.error(e); } 
+    finally { setIsSaving(false); }
   };
 
   const handleSaveConfig = async () => {
       setIsSaving(true);
       try {
-          // Salvataggio nel DB Supabase
-          await updateClientConfig(targetClientId, {
+          const newConfigPayload = {
               google_api_key: configData.apiKey,
-              email_bridge: configData.targetCalendarId, // Salviamo l'ID calendario qui
+              email_bridge: configData.targetCalendarId,
               emailjs_service_id: configData.emailServiceId,
               emailjs_template_id: configData.emailTemplateId,
               emailjs_public_key: configData.emailPublicKey,
               service_account_json: configData.serviceAccountJson
-          });
+          };
+
+          await updateClientConfig(currentConfig.id, newConfigPayload);
           
-          alert(`✅ Configurazione salvata con successo per ${targetClientName}!`);
-          
-          // Se siamo Master, ricarichiamo la lista per avere i dati aggiornati
-          if (userRole === 'MASTER') {
-             const updatedClients = await getAllClients();
-             setAllClients(updatedClients);
+          // Aggiorna oggetto locale
+          if (managedClient) {
+              setManagedClient({ ...managedClient, ...newConfigPayload });
+          } else {
+              alert("Configurazione salvata. Ricarica la pagina per applicare le modifiche.");
           }
-      } catch (e) { 
-          alert("Errore durante il salvataggio della configurazione."); 
-          console.error(e); 
-      } finally { 
-          setIsSaving(false); 
-      }
+          
+          alert(`✅ Configurazione salvata per ${currentConfig.business_name}!`);
+      } catch (e) { alert("Errore salvataggio config"); console.error(e); } 
+      finally { setIsSaving(false); }
   };
 
   const handleBookingAction = async (id: string, status: BookingStatus) => {
-    if (!window.confirm(status === BookingStatus.CONFIRMED ? "Confermare questo appuntamento?" : "Cancellare questo appuntamento?")) return;
-    
+    if (!window.confirm(status === BookingStatus.CONFIRMED ? "Confermare appuntamento?" : "Cancellare appuntamento?")) return;
     setProcessingAction({ id, status });
     try {
-        await onUpdateBookingStatus(id, status);
-    } catch (e) {
-        console.error(e);
-        alert("Errore durante l'aggiornamento.");
-    } finally {
-        setProcessingAction(null);
-    }
+        await updateBookingStatus(id, status);
+        
+        // Invia email notifica usando la config CORRENTE
+        const booking = currentBookings.find(b => b.id === id);
+        if (booking) await sendBookingStatusEmail(booking, status, currentConfig);
+
+        // Aggiorna stato locale
+        if (userRole === 'MASTER' && managedClient) {
+            // Ricarica bookings dal DB per sicurezza o aggiorna localmente
+            const updated = currentBookings.map(b => b.id === id ? { ...b, status } : b);
+            setManagedBookings(updated);
+        } else {
+            await onUpdateBookingStatus(id, status);
+        }
+    } catch (e) { console.error(e); alert("Errore aggiornamento."); } 
+    finally { setProcessingAction(null); }
   };
 
   const toggleDay = (dayIndex: number) => {
     const currentDays = formData.availability.daysOfWeek || [];
-    const newDays = currentDays.includes(dayIndex)
-      ? currentDays.filter(d => d !== dayIndex)
-      : [...currentDays, dayIndex].sort();
-    
-    setFormData({
-        ...formData,
-        availability: { ...formData.availability, daysOfWeek: newDays }
-    });
+    const newDays = currentDays.includes(dayIndex) ? currentDays.filter(d => d !== dayIndex) : [...currentDays, dayIndex].sort();
+    setFormData({ ...formData, availability: { ...formData.availability, daysOfWeek: newDays } });
   };
+
+  // -- RENDER --
 
   return (
     <div className="bg-gray-50 min-h-screen flex flex-col">
       <header className="bg-gray-900 text-white px-6 py-4 sticky top-0 z-50 flex justify-between items-center shadow-md">
         <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold">
-                {userRole === 'MASTER' ? `Master Control` : `Admin: ${clientConfig.business_name}`}
+            <h1 className="text-xl font-bold flex items-center gap-2">
+                {userRole === 'MASTER' && managedClient && (
+                    <button onClick={handleBackToDashboard} className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm mr-2 transition-colors flex items-center gap-1 border border-gray-600">
+                        <span>←</span> Clienti
+                    </button>
+                )}
+                {userRole === 'MASTER' 
+                    ? (managedClient ? `Gestione: ${managedClient.business_name}` : "Master Dashboard") 
+                    : `Admin: ${currentConfig.business_name}`}
             </h1>
-            {userRole === 'MASTER' && activeTab === 'setup' && (
-                <span className="bg-indigo-600 text-xs px-2 py-1 rounded text-white font-mono">Modifica: {targetClientName}</span>
-            )}
         </div>
         <div className="flex gap-4">
-            <nav className="flex bg-gray-800 rounded-lg p-1">
-                {userRole === 'MASTER' && <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-md text-sm ${activeTab === 'dashboard' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Clienti</button>}
-                <button onClick={() => setActiveTab('bookings')} className={`px-4 py-1.5 rounded-md text-sm ${activeTab === 'bookings' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Prenotazioni</button>
-                <button onClick={() => setActiveTab('services')} className={`px-4 py-1.5 rounded-md text-sm ${activeTab === 'services' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Servizi</button>
-                {userRole === 'MASTER' && <button onClick={() => setActiveTab('setup')} className={`px-4 py-1.5 rounded-md text-sm ${activeTab === 'setup' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Setup Tecnico</button>}
-            </nav>
+            {!showDashboardOnly && (
+                <nav className="flex bg-gray-800 rounded-lg p-1">
+                    <button onClick={() => setActiveTab('bookings')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${activeTab === 'bookings' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Prenotazioni</button>
+                    <button onClick={() => setActiveTab('services')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${activeTab === 'services' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>Servizi</button>
+                    <button onClick={() => setActiveTab('setup')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${activeTab === 'setup' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>⚙️ Setup</button>
+                </nav>
+            )}
             <button onClick={onClose} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm border border-gray-700 transition-colors">Esci</button>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6 w-full">
+      <main className="max-w-7xl mx-auto p-6 w-full flex-grow">
         
-        {/* DASHBOARD MASTER (LISTA CLIENTI) */}
-        {activeTab === 'dashboard' && userRole === 'MASTER' && (
+        {/* VIEW 1: DASHBOARD LISTA CLIENTI (SOLO MASTER) */}
+        {showDashboardOnly && (
             <div className="space-y-6 animate-fade-in">
                 <div className="flex justify-between items-end border-b pb-4">
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">Gestionale Clienti</h2>
-                        <p className="text-gray-500">Seleziona un cliente per configurare il suo calendario e servizi.</p>
+                        <h2 className="text-2xl font-bold text-gray-800">Tutti i Clienti</h2>
+                        <p className="text-gray-500">Seleziona un'attività per gestirla.</p>
                     </div>
-                    <div className="text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded-lg">Totale Clienti: <strong>{allClients.length}</strong></div>
                 </div>
                 
+                {isLoadingData && <div className="text-center py-10 text-indigo-600">Caricamento dati...</div>}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {allClients.map(client => (
-                        <div key={client.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-indigo-300 transition-all group relative">
-                            <div className="absolute top-4 right-4">
-                                {client.service_account_json ? (
-                                    <span title="Configurato" className="w-3 h-3 bg-green-500 rounded-full block"></span>
-                                ) : (
-                                    <span title="Manca Setup" className="w-3 h-3 bg-red-400 rounded-full block animate-pulse"></span>
-                                )}
-                            </div>
+                        <div key={client.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-lg hover:border-indigo-300 transition-all relative group">
                             <h3 className="font-bold text-lg text-gray-800 mb-1">{client.business_name}</h3>
                             <p className="text-sm text-indigo-600 font-medium mb-4">{client.subdomain}.prenotafacile.it</p>
                             
-                            <div className="space-y-2 text-xs text-gray-500 mb-6 bg-gray-50 p-3 rounded-lg">
-                                <div className="flex justify-between"><span>Owner:</span> <span className="text-gray-900 font-mono truncate max-w-[150px]">{client.email_owner}</span></div>
-                                <div className="flex justify-between"><span>Target Cal:</span> <span className="text-gray-900 font-mono truncate max-w-[150px]">{client.email_bridge || '-'}</span></div>
+                            <div className="space-y-1 text-xs text-gray-500 mb-6 bg-gray-50 p-3 rounded-lg">
+                                <div className="flex justify-between"><span>Owner:</span> <span className="text-gray-900 font-mono truncate w-32 text-right">{client.email_owner}</span></div>
                             </div>
 
                             <button 
-                                onClick={() => handleSelectClientToEdit(client)}
-                                className="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-600 transition-colors"
+                                onClick={() => handleManageClient(client)}
+                                className="w-full py-3 bg-gray-900 text-white rounded-lg text-sm font-bold shadow hover:bg-indigo-600 transition-colors flex justify-center items-center gap-2"
                             >
-                                Configura Cliente ⚙️
+                                Gestisci Attività ⚙️
                             </button>
                         </div>
                     ))}
-                    {allClients.length === 0 && <p className="text-gray-500 italic col-span-3 text-center py-10">Nessun cliente nel database.</p>}
+                    {!isLoadingData && allClients.length === 0 && <p className="text-gray-500 col-span-3 text-center">Nessun cliente trovato.</p>}
                 </div>
             </div>
         )}
 
-        {/* PRENOTAZIONI */}
-        {activeTab === 'bookings' && (
+        {/* VIEW 2: PRENOTAZIONI */}
+        {activeTab === 'bookings' && !showDashboardOnly && (
             <div className="space-y-4 animate-fade-in">
-                {bookings.map(booking => {
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-gray-800">Prenotazioni: {currentConfig.business_name}</h2>
+                    <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-bold">{currentBookings.length} Totali</span>
+                </div>
+                
+                {currentBookings.length === 0 && <p className="text-gray-500 text-center py-10 bg-white rounded-xl border border-dashed border-gray-300">Nessuna prenotazione presente.</p>}
+                
+                {currentBookings.map(booking => {
                     const isProcessing = processingAction?.id === booking.id;
-                    const isCancelling = isProcessing && processingAction?.status === BookingStatus.CANCELLED;
-                    const isConfirming = isProcessing && processingAction?.status === BookingStatus.CONFIRMED;
-
                     return (
-                        <div key={booking.id} className="bg-white p-4 rounded shadow flex justify-between items-center border border-gray-100">
+                        <div key={booking.id} className="bg-white p-5 rounded-xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center border border-gray-100 hover:border-indigo-200 transition-colors gap-4">
                             <div>
-                                <div className="font-bold text-lg">{booking.clientName} {booking.clientSurname}</div>
-                                <div className="text-sm text-gray-600 flex items-center gap-2">
-                                    <span className="font-medium text-indigo-600">{booking.service.title}</span>
-                                    <span>•</span>
+                                <div className="font-bold text-lg text-gray-900">{booking.clientName} {booking.clientSurname}</div>
+                                <div className="text-sm text-gray-600 flex flex-wrap gap-2 items-center mt-1">
+                                    <span className="font-medium text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{booking.service.title}</span>
+                                    <span className="text-gray-400">•</span>
                                     <span>{new Date(booking.date).toLocaleDateString()} ore {booking.timeSlot.startTime}</span>
                                 </div>
-                                <div className={`text-xs font-bold uppercase mt-2 inline-block px-2 py-0.5 rounded ${booking.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' : booking.status === 'CONFIRMED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{booking.status}</div>
+                                <div className="mt-2">
+                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded border ${
+                                        booking.status === 'PENDING' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 
+                                        booking.status === 'CONFIRMED' ? 'bg-green-50 text-green-700 border-green-200' : 
+                                        'bg-red-50 text-red-700 border-red-200'
+                                    }`}>
+                                        {booking.status}
+                                    </span>
+                                </div>
                             </div>
+                            
                             {booking.status === 'PENDING' && (
-                                <div className="flex gap-2">
+                                <div className="flex gap-2 w-full md:w-auto">
                                     <button 
                                         disabled={isProcessing}
                                         onClick={() => handleBookingAction(booking.id, BookingStatus.CANCELLED)} 
-                                        className={`px-3 py-1.5 rounded text-sm font-bold text-white shadow-sm transition-all ${isProcessing ? 'bg-gray-400' : 'bg-red-600 hover:bg-red-700'}`}
+                                        className="flex-1 md:flex-none px-4 py-2 bg-white border border-red-200 text-red-600 hover:bg-red-50 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
                                     >
-                                        {isCancelling ? '...' : 'Rifiuta'}
+                                        Rifiuta
                                     </button>
                                     <button 
                                         disabled={isProcessing}
                                         onClick={() => handleBookingAction(booking.id, BookingStatus.CONFIRMED)} 
-                                        className={`px-3 py-1.5 rounded text-sm font-bold text-white shadow-sm transition-all ${isProcessing ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'}`}
+                                        className="flex-1 md:flex-none px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
                                     >
-                                        {isConfirming ? '...' : 'Conferma'}
+                                        {isProcessing ? '...' : 'Conferma'}
                                     </button>
                                 </div>
                             )}
                         </div>
                     );
                 })}
-                {bookings.length === 0 && <p className="text-center py-10 text-gray-500">Nessuna prenotazione attiva per {clientConfig.business_name}.</p>}
             </div>
         )}
 
-        {/* SERVIZI */}
-        {activeTab === 'services' && (
+        {/* VIEW 3: SERVIZI */}
+        {activeTab === 'services' && !showDashboardOnly && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
                 <div>
                     <div className="flex justify-between items-center mb-4">
@@ -293,7 +336,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                         <button onClick={() => setEditingId('new')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-colors">+ Nuovo</button>
                     </div>
                     <div className="space-y-3">
-                        {services.map(s => (
+                        {currentServices.map(s => (
                             <div key={s.id} onClick={() => setEditingId(s.id)} className={`p-4 rounded-xl border cursor-pointer transition-all ${editingId === s.id ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500' : 'bg-white border-gray-200 hover:border-indigo-300'}`}>
                                 <div className="font-bold text-gray-800">{s.title}</div>
                                 <div className="text-xs text-gray-500 mt-1">{s.durationMinutes} min • €{s.price}</div>
@@ -342,74 +385,76 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                     </div>
                                 )}
                             </div>
-                            <button onClick={handleSaveService} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-lg w-full font-bold shadow-md transition-all">{isSaving ? 'Salvataggio...' : 'Salva Modifiche'}</button>
+                            <div className="flex gap-3">
+                                <button onClick={() => setEditingId(null)} className="flex-1 py-3 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Annulla</button>
+                                <button onClick={handleSaveService} disabled={isSaving} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-bold shadow-md transition-all">{isSaving ? '...' : 'Salva'}</button>
+                            </div>
                         </div>
                     </div>
                 )}
             </div>
         )}
 
-        {/* SETUP TECNICO (Solo Master) */}
-        {activeTab === 'setup' && userRole === 'MASTER' && (
+        {/* VIEW 4: SETUP TECNICO */}
+        {activeTab === 'setup' && !showDashboardOnly && (
             <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
                 <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
                     <div className="border-b border-gray-100 pb-6 mb-6">
-                        <h3 className="font-bold text-2xl text-gray-900">Configurazione Tecnica Cliente</h3>
-                        <p className="text-sm text-indigo-600 mt-1 font-medium bg-indigo-50 inline-block px-3 py-1 rounded-full">
-                            Stai modificando: {targetClientName} <span className="text-gray-400 font-normal">({targetClientSubdomain})</span>
-                        </p>
+                        <h3 className="font-bold text-2xl text-gray-900">Setup Tecnico: {currentConfig.business_name}</h3>
+                        <p className="text-sm text-gray-500 mt-1">Configura le integrazioni esterne per questo cliente.</p>
                     </div>
                     
-                    <div className="space-y-6">
+                    <div className="space-y-8">
                         {/* SEZIONE 1: GOOGLE CALENDAR */}
-                        <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                            <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <span className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs">1</span> 
-                                Connessione Google Calendar
+                        <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-100 rounded-full blur-3xl opacity-50 -mr-10 -mt-10"></div>
+                            <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2 relative z-10">
+                                <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs shadow-sm">1</span> 
+                                Integrazione Google Calendar
                             </h4>
                             
-                            <div className="grid gap-5">
+                            <div className="grid gap-5 relative z-10">
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">ID Calendario Google (Target)</label>
-                                    <p className="text-xs text-gray-500 mb-2">L'indirizzo email o ID del calendario su cui verificare disponibilità e scrivere appuntamenti.</p>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">ID Calendario Target (Email)</label>
                                     <input 
                                         className="w-full border border-gray-300 p-3 rounded-lg font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                        placeholder="es. mario.rossi@gmail.com" 
+                                        placeholder={currentConfig.email_owner}
                                         value={configData.targetCalendarId} 
                                         onChange={e => setConfigData({...configData, targetCalendarId: e.target.value})} 
                                     />
+                                    <p className="text-xs text-gray-500 mt-1">Se vuoto, userò l'email del proprietario ({currentConfig.email_owner}).</p>
                                 </div>
 
                                 <div>
                                     <label className="block text-sm font-bold text-gray-700 mb-1">Service Account JSON (Robot)</label>
-                                    <p className="text-xs text-gray-500 mb-2">Le credenziali complete del Robot che accede al calendario (da Google Cloud Console).</p>
                                     <textarea 
-                                        className="w-full border border-gray-300 p-3 rounded-lg h-40 text-xs font-mono bg-gray-900 text-green-400 focus:ring-2 focus:ring-indigo-500 outline-none" 
-                                        placeholder='{ "type": "service_account", "project_id": ... }' 
+                                        className="w-full border border-gray-300 p-3 rounded-lg h-32 text-xs font-mono bg-white focus:ring-2 focus:ring-indigo-500 outline-none" 
+                                        placeholder='{ "type": "service_account", ... }' 
                                         value={configData.serviceAccountJson} 
                                         onChange={e => setConfigData({...configData, serviceAccountJson: e.target.value})} 
                                     />
+                                    <p className="text-xs text-gray-500 mt-1">Il file JSON scaricato da Google Cloud Console per il Service Account.</p>
                                 </div>
                             </div>
                         </div>
 
-                        {/* SEZIONE 2: AI & NOTIFICHE */}
+                        {/* SEZIONE 2: ALTRE API */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
                                 <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                    <span className="w-6 h-6 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-xs">2</span> 
-                                    Intelligenza Artificiale
+                                    <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs shadow-sm">2</span> 
+                                    Google Gemini AI
                                 </h4>
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">Google Gemini API Key</label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">API Key</label>
                                     <input className="w-full border border-gray-300 p-3 rounded-lg font-mono text-sm" placeholder="AIza..." value={configData.apiKey} onChange={e => setConfigData({...configData, apiKey: e.target.value})} />
                                 </div>
                             </div>
 
                             <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
                                 <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                    <span className="w-6 h-6 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-xs">3</span> 
-                                    Notifiche Email (EmailJS)
+                                    <span className="w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs shadow-sm">3</span> 
+                                    EmailJS (Notifiche)
                                 </h4>
                                 <div className="space-y-3">
                                     <input className="w-full border border-gray-300 p-2 rounded text-sm" placeholder="Service ID" value={configData.emailServiceId} onChange={e => setConfigData({...configData, emailServiceId: e.target.value})} />
@@ -419,13 +464,14 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
                         </div>
                         
-                        <button onClick={handleSaveConfig} disabled={isSaving} className="bg-green-600 hover:bg-green-700 text-white w-full py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
-                            {isSaving ? 'Salvataggio in corso...' : 'Salva Configurazione Cliente'}
+                        <button onClick={handleSaveConfig} disabled={isSaving} className="bg-gray-900 hover:bg-black text-white w-full py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
+                            {isSaving ? 'Salvataggio in corso...' : 'Salva Configurazione'}
                         </button>
                     </div>
                 </div>
             </div>
         )}
+
       </main>
     </div>
   );
