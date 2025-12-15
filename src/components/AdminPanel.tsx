@@ -70,6 +70,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       if (currentConfig) {
         setConfigData({
             apiKey: currentConfig.google_api_key || '',
+            // NOME COLONNA DB DA VERIFICARE. Qui usiamo targetCalendarId per consistenza nel frontend
             targetCalendarId: currentConfig.email_bridge || '', 
             emailServiceId: currentConfig.emailjs_service_id || '',
             emailTemplateId: currentConfig.emailjs_template_id || '',
@@ -97,6 +98,10 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
   const loadClientsList = async () => {
       const clients = await getAllClients();
       setAllClients(clients);
+      console.log("--- DEBUG MASTER DASHBOARD ---");
+      console.log("Numero di clienti caricati:", clients.length);
+      console.log("Dati dei clienti:", clients);
+      console.log("------------------------------");
   };
 
   const handleManageClient = async (client: ClientConfig) => {
@@ -156,7 +161,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
       try {
           const newConfigPayload = {
               google_api_key: configData.apiKey,
-              email_bridge: configData.targetCalendarId,
+              // Stiamo salvando l'ID del calendario del cliente qui
+              email_bridge: configData.targetCalendarId, 
               emailjs_service_id: configData.emailServiceId,
               emailjs_template_id: configData.emailTemplateId,
               emailjs_public_key: configData.emailPublicKey,
@@ -406,19 +412,19 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                             <div className="absolute top-0 right-0 w-20 h-20 bg-blue-100 rounded-full blur-3xl opacity-50 -mr-10 -mt-10"></div>
                             <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2 relative z-10">
                                 <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs shadow-sm">1</span> 
-                                Integrazione Google Calendar
+                                Integrazione Google Calendar (Disponibilità & Prenotazioni)
                             </h4>
                             
                             <div className="grid gap-5 relative z-10">
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-1">ID Calendario Target (Email)</label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">ID Calendario Target Cliente (Email)</label>
                                     <input 
                                         className="w-full border border-gray-300 p-3 rounded-lg font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
                                         placeholder={currentConfig?.email_owner}
                                         value={configData.targetCalendarId} 
                                         onChange={e => setConfigData({...configData, targetCalendarId: e.target.value})} 
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">Se vuoto, userò l'email del proprietario ({currentConfig?.email_owner}).</p>
+                                    <p className="text-xs text-gray-500 mt-1">L'ID del calendario del cliente (solitamente la sua email, es. badhead1973@gmail.com). **Il Service Account Robot deve avere i permessi per leggerlo/scriverci.**</p>
                                 </div>
 
                                 <div>
@@ -429,7 +435,7 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                         value={configData.serviceAccountJson} 
                                         onChange={e => setConfigData({...configData, serviceAccountJson: e.target.value})} 
                                     />
-                                    <p className="text-xs text-gray-500 mt-1">Il file JSON scaricato da Google Cloud Console per il Service Account.</p>
+                                    <p className="text-xs text-gray-500 mt-1">Il file JSON scaricato da Google Cloud Console per il Service Account, che corrisponde a <span className="font-bold text-gray-700">prenotafacile-robot@prenotafacile-479917.iam.gserviceaccount.com</span>.</p>
                                 </div>
                             </div>
                         </div>
@@ -453,8 +459,11 @@ const AdminPanel: React.FC<AdminPanelProps> = ({
                                     EmailJS (Notifiche)
                                 </h4>
                                 <div className="space-y-3">
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Service ID</label>
                                     <input className="w-full border border-gray-300 p-2 rounded text-sm" placeholder="Service ID" value={configData.emailServiceId} onChange={e => setConfigData({...configData, emailServiceId: e.target.value})} />
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Template ID</label>
                                     <input className="w-full border border-gray-300 p-2 rounded text-sm" placeholder="Template ID" value={configData.emailTemplateId} onChange={e => setConfigData({...configData, emailTemplateId: e.target.value})} />
+                                    <label className="block text-sm font-bold text-gray-700 mb-1">Public Key</label>
                                     <input className="w-full border border-gray-300 p-2 rounded text-sm" placeholder="Public Key" value={configData.emailPublicKey} onChange={e => setConfigData({...configData, emailPublicKey: e.target.value})} />
                                 </div>
                             </div>
