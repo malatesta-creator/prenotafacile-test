@@ -113,16 +113,13 @@ const App: React.FC = () => {
           try {
               const saJson = JSON.parse(clientConfig.service_account_json);
               
-              // LOGICA DI TARGETING OTTIMIZZATA:
-              // Dato che il robot ha i permessi di scrittura sul calendario del proprietario (confermato dagli screenshot),
-              // Scriviamo DIRETTAMENTE lì. È più sicuro e immediato per l'utente.
-              // Usiamo l'email ponte solo come fallback se l'owner manca (improbabile).
-              const targetCal = clientConfig.email_owner || clientConfig.email_bridge;
+              // LOGICA SEMPLIFICATA: Scriviamo SEMPRE sul calendario del proprietario (Cliente).
+              // Non usiamo più il concetto di 'Ponte' come target.
+              const targetCal = clientConfig.email_owner; 
 
               await createCalendarBooking(bookingDetails, saJson, clientConfig.email_owner, targetCal);
           } catch(e) {
               console.error("Errore Calendario", e);
-              // Non blocchiamo il flusso se il calendario fallisce, la prenotazione è salvata su DB
           }
       }
 
